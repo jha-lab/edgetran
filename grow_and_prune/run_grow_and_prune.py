@@ -430,6 +430,7 @@ def main():
 
 			# Sort attention heads based on increasing mean weight
 			attention_weights.sort(key=lambda x:x['mean_weight'])
+			attention_weights_unsorted = deepcopy(attention_weights)
 
 			# Prune attention heads
 			for num_op in range(config['prune']['num_ops']):
@@ -441,11 +442,24 @@ def main():
 
 			# Sort feed-forward based on increasing mean weight
 			feed_forward_weights.sort(key=lambda x:x['mean_weight'])
+			feed_forward_weights_unsorted = deepcopy(feed_forward_weights)
 
 			# Prune feed-forward layers
 			for num_ff_layer in range(config['prune']['num_feed_forward_layers']):
 				model_dict['f'][feed_forward_weights[num_ff_layer]['layer']][feed_forward_weights[num_ff_layer]['feed_forward_layer']] -= \
 					config['prune']['feed_forward_prune_dim']
+
+			# Prune encoder layer:
+			min_encoder_weight, min_encoder_idx = np.inf, 0
+			for i in range(model_dict['l']):
+				mean_encoder_weight = np.mean([attention_weights_unsorted[i]['mean_weight'], feed_forward_weights_unsorted[i]['mean_weight']])
+				if mean_encoder_weight < min_encoder_weight:
+					min_encoder_weight = mean_encoder_weight
+					min_encoder_idx = i
+			model_dict['h'][min_encoder_idx] -= config['prune']['hidden_prune_dim']
+			for j in range(len(model_dict['o'][min_encoder_idx])):
+				model_dict['o'][min_encoder_idx][j] = model_dict['o'][min_encoder_idx][j].split('_')[0] + '_' + \
+					model_dict['o'][min_encoder_idx][j].split('_')[1] + str(int(model_dict['h'][min_encoder_idx]/12))
 			
 			# Get the hash of the current model
 			model_graph = graph_util.model_dict_to_graph(model_dict)
@@ -501,8 +515,7 @@ def main():
 			same_performance += 1
 		old_best_loss = best_loss
 
-		break
-			
+		break	
 
 	print(f'{pu.bcolors.OKGREEN}Convergence criterion reached!{pu.bcolors.ENDC}')
 
