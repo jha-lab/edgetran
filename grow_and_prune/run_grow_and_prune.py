@@ -36,16 +36,16 @@ from transformers import RobertaTokenizer, RobertaModel
 from transformers.models.bert.configuration_bert import BertConfig
 
 from transformers import (
-    CONFIG_MAPPING,
-    MODEL_FOR_MASKED_LM_MAPPING,
-    AutoConfig,
-    AutoModelForMaskedLM,
-    AutoTokenizer,
-    DataCollatorForLanguageModeling,
-    HfArgumentParser,
-    Trainer,
-    TrainingArguments,
-    set_seed,
+	CONFIG_MAPPING,
+	MODEL_FOR_MASKED_LM_MAPPING,
+	AutoConfig,
+	AutoModelForMaskedLM,
+	AutoTokenizer,
+	DataCollatorForLanguageModeling,
+	HfArgumentParser,
+	Trainer,
+	TrainingArguments,
+	set_seed,
 )
 
 
@@ -70,17 +70,17 @@ def worker(models_dir: str,
 	"""Worker to pre-train the given model
 	
 	Args:
-	    config_file (str): path to the grow-and-prune configuration file
-	    model_dict (dict): model dictionary of the given model
-	    models_dir (str): path to the models directory
-	    model_hash (str): hash of the given model
-	    chosen_neighbor_hash (str): hash of the chosen neighbor
-	    config (dict): configuration for grow-and-prune
-	    cluster (str): name of the cluster - "adroit", "tiger" or "della"
-	    id (str): PU-NetID that is used to run slurm commands
+		config_file (str): path to the grow-and-prune configuration file
+		model_dict (dict): model dictionary of the given model
+		models_dir (str): path to the models directory
+		model_hash (str): hash of the given model
+		chosen_neighbor_hash (str): hash of the chosen neighbor
+		config (dict): configuration for grow-and-prune
+		cluster (str): name of the cluster - "adroit", "tiger" or "della"
+		id (str): PU-NetID that is used to run slurm commands
 	
 	Returns:
-	    job_id (str): Job ID for the slurm scheduler
+		job_id (str): Job ID for the slurm scheduler
 	"""
 	print(f'Training model with hash: {model_hash} \n\tand model dictionary:\n{model_dict}.')
 	print(f'Transfering weights from neighbor with hash: {chosen_neighbor_hash}.')
@@ -94,10 +94,10 @@ def worker(models_dir: str,
 	re_checkpoint = re.compile(r"^" + PREFIX_CHECKPOINT_DIR + r"\-(\d+)$")
 	content = os.listdir(chosen_neighbor_path)
 	checkpoints = [
-	        path
-	        for path in content
-	        if _re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(chosen_neighbor_path, path))
-	    ]
+			path
+			for path in content
+			if _re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(chosen_neighbor_path, path))
+		]
 	checkpoint_dir = max(checkpoints, key=lambda x: int(_re_checkpoint.search(x).groups()[0]))
 
 	tokenizer = RobertaTokenizer.from_pretrained('../txf_design-space/roberta_tokenizer/')
@@ -110,7 +110,7 @@ def worker(models_dir: str,
 
 	# Setting up checkpoint for the current model
 	if os.path.exists(model_path):
-	    shutil.rmtree(model_path)
+		shutil.rmtree(model_path)
 	shutil.copytree(os.path.join(chosen_neighbor_path, checkpoint_dir), os.path.join(model_path, checkpoint_dir))
 	os.remove(os.path.join(output_dir_new, checkpoint_dir, 'optimizer.pt'))
 	# os.remove(os.path.join(output_dir_new, checkpoint_dir, 'scheduler.pt'))
@@ -216,12 +216,12 @@ def update_dataset(txf_dataset: dict,
 	"""Update the dataset with all pre-trained models
 	
 	Args:
-	    txf_dataset (dict): dictionary of transformers and their losses
-	    models_dir (str): path to the models directory
-	    txf_dataset_file (str): path to the transformers dataset file
+		txf_dataset (dict): dictionary of transformers and their losses
+		models_dir (str): path to the models directory
+		txf_dataset_file (str): path to the transformers dataset file
 	
 	Returns:
-	    best_loss, best_hash (float, str): lowest loss (and corresponding hash) among all transformers trained
+		best_loss, best_hash (float, str): lowest loss (and corresponding hash) among all transformers trained
 	"""
 
 	best_loss, best_hash = np.inf, ''
@@ -312,12 +312,71 @@ def main():
 		best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
 		best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
 
+		# Prune model based on configuration
+		if best_hash != BERT_BASE_HASH:
+			model_dict = deepcopy(best_model_dict)
+
+			# Load FlexiBERT model from pre-trained best model
+			model = BertModelModular.from_pretrained(os.path.join(args.models_dir, best_hash))
+
+			# Instantiate attention head weights
+			attention_weights = []
+
+			for i in range(best_model_dict['l']):
+				# Get multi-head attention for current encoder layer
+				attention_head_size = int(model_dict['o'][i][0].split('_')[2])
+				attention_layer = model.encoder.layer[i].attention.self
+
+				wma_count, conv_count = 0, 0
+				for j in range(len(best_model_dict['o'][i])):
+					# Get mean weight values for each attention head
+					query_mean = torch.mean(torch.square(
+						attention_layer.query.weight[j*attention_head_size:(j+1)*attention_head_size])).item()
+					key_mean = torch.mean(torch.square(
+						attention_layer.key.weight[j*attention_head_size:(j+1)*attention_head_size])).item()
+					value_mean = torch.mean(torch.square(
+						attention_layer.value.weight[j*attention_head_size:(j+1)*attention_head_size])).item()
+					weights = [query_mean, key_mean, value_mean]
+
+					# Add more weights based on attention operation
+					if model_dict['o'][i][j].split('_')[1] == 'wma':
+						wma_mean = torch.mean(torch.square(
+							getattr(attention_layer, f'W{wma_count}'))).item()
+						weights.append(wma_mean)
+						wma_count += 1
+					elif model_dict['o'][i][j].split('_')[1].isnumeric():
+						key_conv_attn_layer_mean = np.mean([torch.mean(torch.square(
+							getattr(attention_layer, f'key_conv_attn_layer{conv_count}').depthwise.weight)).item(),
+															torch.mean(torch.square(
+							getattr(attention_layer, f'key_conv_attn_layer{conv_count}').pointwise.weight)).item()])
+						conv_kernel_layer_mean = torch.mean(torch.square(
+							getattr(attention_layer, f'conv_kernel_layer{conv_count}').weight)).item()
+						conv_out_layer_mean = torch.mean(torch.square(
+							getattr(attention_layer, f'conv_out_layer{conv_count}').weight)).item()
+						conv_mean = np.mean([key_conv_attn_layer_mean, conv_kernel_layer_mean, conv_out_layer_mean])
+						weights.append(conv_mean)
+						conv_count += 1
+
+					# print(f'Layer {i}, Attention head {j}, mean: {np.mean(weights): 0.3e}')
+					attention_weights.append({'layer': i, 'attention_head': j, 'mean_weight': np.mean(weights)})
+
+			# Sort attention heads based on increasing mean weight
+			attention_weights.sort(key=lambda x:x['mean_weight'])
+
+			for num_op in range(config['prune']['num_ops']):
+				# Remove attention head with lowest mean weight values
+				model_dict['o'][attention_weights[num_op]['layer']].pop(attention_weights[num_op]['attention_head'])
+			
+			# Get the hash of the current model
+			model_graph = graph_util.model_dict_to_graph(model_dict)
+			model_hash = graph_util.hash_graph(*model_graph)
+
 		# Grow current best model based on configuration
-		for sample_idx in range(config['num_grow_samples']):
+		for i in range(config['num_grow_samples']):
 			model_dict = deepcopy(best_model_dict)
 
 			# Add a random attention operation
-			for num_ops in range(config['grow']['num_ops']):
+			for num_op in range(config['grow']['num_ops']):
 				layer = random.randint(0, model_dict['l']-1)
 				op = random.sample(config['allowed_ops'], 1)[0]
 				
