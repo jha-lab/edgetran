@@ -223,7 +223,6 @@ def update_dataset(txf_dataset: dict,
 	Returns:
 		best_loss, best_hash (float, str): lowest loss (and corresponding hash) among all transformers trained
 	"""
-
 	best_loss, best_hash = np.inf, ''
 	for model_hash in os.listdir(models_dir):
 		log_history = json.load(open(os.path.join(models_dir, model_hash, 'log_history.json'), 'r'))
@@ -241,6 +240,93 @@ def update_dataset(txf_dataset: dict,
 	print(f'Model with best loss ({best_loss}) has hash: {best_hash}')
 	
 	return best_loss, best_hash
+
+
+def get_attention_weights(models_dir: str,
+	model_hash: str):
+	"""Obtain the weights of the attention heads
+	
+	Args:
+		models_dir (str): path to the models directory\
+		model_hash (str): hash of the given model
+	
+	Returns:
+		attention_weights (list): mean weight of the attention heads
+	"""
+
+	# Get model dictionary
+	model_dict = json.load(open(os.path.join(models_dir, model_hash, 'model_dict.json'), 'r'))
+
+	# Finding the latest checkpoint for chosen model
+	re_checkpoint = re.compile(r"^" + PREFIX_CHECKPOINT_DIR + r"\-(\d+)$")
+	content = os.listdir(os.path.join(models_dir, model_hash))
+	checkpoints = [
+			path
+			for path in content
+			if _re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(models_dir, model_hash, path))
+		]
+	checkpoint_dir = max(checkpoints, key=lambda x: int(_re_checkpoint.search(x).groups()[0]))
+
+	# Initialize FlexiBERT model
+	model = BertForMaskedLMModular.from_pretrained(os.path.join(models_dir, model_hash, checkpoint_dir))
+
+	# Instantiate attention head weights
+	attention_weights = []
+
+	for i in range(best_model_dict['l']):
+		# Get multi-head attention for current encoder layer
+		attention_head_size = int(model_dict['o'][i][0].split('_')[2])
+		attention_layer = model.bert.encoder.layer[i].attention.self
+
+		wma_count, conv_count = 0, 0
+		for j in range(len(best_model_dict['o'][i])):
+			# Get mean weight values for each attention head
+			query_mean = torch.mean(torch.square(
+				attention_layer.query.weight[j*attention_head_size:(j+1)*attention_head_size])).item()
+			key_mean = torch.mean(torch.square(
+				attention_layer.key.weight[j*attention_head_size:(j+1)*attention_head_size])).item()
+			value_mean = torch.mean(torch.square(
+				attention_layer.value.weight[j*attention_head_size:(j+1)*attention_head_size])).item()
+			weights = [query_mean, key_mean, value_mean]
+
+			# Add more weights based on attention operation
+			if model_dict['o'][i][j].split('_')[1] == 'wma':
+				wma_mean = torch.mean(torch.square(
+					getattr(attention_layer, f'W{wma_count}'))).item()
+				weights.append(wma_mean)
+				wma_count += 1
+			elif model_dict['o'][i][j].split('_')[1].isnumeric():
+				key_conv_attn_layer_mean = np.mean([torch.mean(torch.square(
+					getattr(attention_layer, f'key_conv_attn_layer{conv_count}').depthwise.weight)).item(),
+													torch.mean(torch.square(
+					getattr(attention_layer, f'key_conv_attn_layer{conv_count}').pointwise.weight)).item()])
+				conv_kernel_layer_mean = torch.mean(torch.square(
+					getattr(attention_layer, f'conv_kernel_layer{conv_count}').weight)).item()
+				conv_out_layer_mean = torch.mean(torch.square(
+					getattr(attention_layer, f'conv_out_layer{conv_count}').weight)).item()
+				conv_mean = np.mean([key_conv_attn_layer_mean, conv_kernel_layer_mean, conv_out_layer_mean])
+				weights.append(conv_mean)
+				conv_count += 1
+
+			# print(f'Layer {i}, Attention head {j}, mean: {np.mean(weights): 0.3e}')
+			attention_weights.append({'layer': i, 'attention_head': j, 'mean_weight': np.mean(weights)})
+
+	return attention_weights
+
+
+def get_feed_forward_weights(models_dir: str,
+	model_hash: str):
+	"""Obtain the weights of the feed-forward layers 
+
+	Args:
+		models_dir (str): path to the models directory
+		model_hash (str): hash of the given model
+	
+	Returns:
+		feed_forward_weights (list): mean weight of the feed-forward layers
+	"""
+
+	# TODO: complete this
 
 
 def main():
@@ -316,60 +402,46 @@ def main():
 		if best_hash != BERT_BASE_HASH:
 			model_dict = deepcopy(best_model_dict)
 
-			# Load FlexiBERT model from pre-trained best model
-			model = BertModelModular.from_pretrained(os.path.join(args.models_dir, best_hash))
-
-			# Instantiate attention head weights
-			attention_weights = []
-
-			for i in range(best_model_dict['l']):
-				# Get multi-head attention for current encoder layer
-				attention_head_size = int(model_dict['o'][i][0].split('_')[2])
-				attention_layer = model.encoder.layer[i].attention.self
-
-				wma_count, conv_count = 0, 0
-				for j in range(len(best_model_dict['o'][i])):
-					# Get mean weight values for each attention head
-					query_mean = torch.mean(torch.square(
-						attention_layer.query.weight[j*attention_head_size:(j+1)*attention_head_size])).item()
-					key_mean = torch.mean(torch.square(
-						attention_layer.key.weight[j*attention_head_size:(j+1)*attention_head_size])).item()
-					value_mean = torch.mean(torch.square(
-						attention_layer.value.weight[j*attention_head_size:(j+1)*attention_head_size])).item()
-					weights = [query_mean, key_mean, value_mean]
-
-					# Add more weights based on attention operation
-					if model_dict['o'][i][j].split('_')[1] == 'wma':
-						wma_mean = torch.mean(torch.square(
-							getattr(attention_layer, f'W{wma_count}'))).item()
-						weights.append(wma_mean)
-						wma_count += 1
-					elif model_dict['o'][i][j].split('_')[1].isnumeric():
-						key_conv_attn_layer_mean = np.mean([torch.mean(torch.square(
-							getattr(attention_layer, f'key_conv_attn_layer{conv_count}').depthwise.weight)).item(),
-															torch.mean(torch.square(
-							getattr(attention_layer, f'key_conv_attn_layer{conv_count}').pointwise.weight)).item()])
-						conv_kernel_layer_mean = torch.mean(torch.square(
-							getattr(attention_layer, f'conv_kernel_layer{conv_count}').weight)).item()
-						conv_out_layer_mean = torch.mean(torch.square(
-							getattr(attention_layer, f'conv_out_layer{conv_count}').weight)).item()
-						conv_mean = np.mean([key_conv_attn_layer_mean, conv_kernel_layer_mean, conv_out_layer_mean])
-						weights.append(conv_mean)
-						conv_count += 1
-
-					# print(f'Layer {i}, Attention head {j}, mean: {np.mean(weights): 0.3e}')
-					attention_weights.append({'layer': i, 'attention_head': j, 'mean_weight': np.mean(weights)})
+			# Get attention weights for the model
+			attention_weights = get_attention_weights(args.models_dir, model_hash)
 
 			# Sort attention heads based on increasing mean weight
 			attention_weights.sort(key=lambda x:x['mean_weight'])
 
+			# Prune attention heads
 			for num_op in range(config['prune']['num_ops']):
 				# Remove attention head with lowest mean weight values
 				model_dict['o'][attention_weights[num_op]['layer']].pop(attention_weights[num_op]['attention_head'])
+
+			# Get feed-forward weights for the model
+			feed_forward_weights = get_feed_forward_weights(args.models_dir, model_hash)
+
+			# Sort feed-forward based on increasing mean weight
+			feed_forward_weights.sort(key=lambda x:x['mean_weight'])
+
+			# Prune feed-forward layers
+			for num_ff_layer in range(config['prune']['num_feed_forward_layers']):
+				model_dict['f'][feed_forward_weights[num_ff_layer]['layer']][feed_forward_weights[num_ff_layer]['feed_forward_layer']] -= \
+					config['prune']['feed_forward_prune_dim']
 			
 			# Get the hash of the current model
 			model_graph = graph_util.model_dict_to_graph(model_dict)
 			model_hash = graph_util.hash_graph(*model_graph)
+
+			# Train pruned model
+			print(f'Training pruned model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
+			job_id = worker(args.models_dir, model_dict, model_hash, 
+				chosen_neighbor_hash=best_hash, config=config, cluster=args.cluster, id=args.id)
+
+			model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
+
+			# Wait for jobs to complete
+			wait_for_jobs(model_jobs, txf_dataset, running_limit=0, patience=0)
+
+			best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
+			best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
+
+			assert best_hash == model_hash, f'Pruned model (with hash: {model_hash}) does not give the best loss (best model with hash: {best_hash})'
 
 		# Grow current best model based on configuration
 		for i in range(config['num_grow_samples']):
