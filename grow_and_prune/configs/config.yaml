@@ -8,9 +8,9 @@ grow:
 
 prune:
   num_ops: 1
-  num_feed_forward_stacks: 1
-  feed_forward: 16
-  hidden_dim: 128
+  num_feed_forward_layers: 3
+  feed_forward_prune_dim: 128
+  hidden_prune_dim: 48
 
 model_transfer_mode:
   RP
