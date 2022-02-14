@@ -6,7 +6,7 @@
 import os
 import sys
 
-sys.path.append('../../txf_design-space/embeddings/utils')
+sys.path.append('../../txf_design-space/embeddings')
 sys.path.append('../../txf_design-space/flexibert')
 
 import argparse
@@ -15,6 +15,7 @@ import torch
 import shlex
 from dataclasses import dataclass, field
 from typing import Optional
+from copy import deepcopy
 from roberta_pretraining import pretrain
 import shutil
 import random
@@ -25,7 +26,7 @@ from six.moves import cPickle as pickle
 from tqdm import tqdm
 import gc
 
-import graph_util
+from utils import graph_util
 from utils import print_util as pu
 
 from datasets import load_dataset, interleave_datasets, load_from_disk
@@ -49,18 +50,21 @@ from transformers import (
 
 
 BERT_BASE_HASH = '07aaba14d29455a984e2aef6312a8870'
-BERT_BASE_LOSS = # TODO: add this once BERT-Base is pre-trained
+BERT_BASE_LOSS = 1.2 # TODO: add this once BERT-Base is pre-trained
 
 CKPT_PATH = '' # Path to the grow-and-prune checkpoint
 PREFIX_CHECKPOINT_DIR = "checkpoint"
 
 USE_GPU_EE = False # Use GPU-EE partition on della cluster
 
+PERFORMANCE_PATIENCE = 5
+
 
 def worker(models_dir: str,
 	model_dict: dict,
 	model_hash: str,
 	chosen_neighbor_hash: str,
+	config: dict,
 	cluster: str,
 	id: str):
 	"""Worker to pre-train the given model
@@ -71,6 +75,7 @@ def worker(models_dir: str,
 	    models_dir (str): path to the models directory
 	    model_hash (str): hash of the given model
 	    chosen_neighbor_hash (str): hash of the chosen neighbor
+	    config (dict): configuration for grow-and-prune
 	    cluster (str): name of the cluster - "adroit", "tiger" or "della"
 	    id (str): PU-NetID that is used to run slurm commands
 	
@@ -100,7 +105,7 @@ def worker(models_dir: str,
 	config_new.from_model_dict_hetero(model_dict)
 	
 	# Transfer weights from chosen neighbor to the current model
-	model = BertModelModular(config_new)
+	model = BertModelModular(config_new, transfer_mode=config['model_transfer_mode'])
 	model.load_model_from_source(chosen_neighbor_model)
 
 	# Setting up checkpoint for the current model
@@ -227,8 +232,8 @@ def update_dataset(txf_dataset: dict,
 		
 		txf_dataset[model_hash] = {'model_dict': model_dict, 'losses': losses}
 
-		if loss < best_loss:
-			best_loss = loss
+		if losses[-1] < best_loss:
+			best_loss = losses[-1]
 			best_hash = model_hash
 
 	json.dump(txf_dataset, open(txf_dataset_file, 'w+'))
@@ -290,9 +295,33 @@ def main():
 		txf_dataset = json.load(open(args.txf_dataset_file, 'r'))
 
 	best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
+	best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
 
-	# TODO: Implement automated grow-and-prune
-	
+	# If this script is run for the first time, the best model is BERT-Base
+	assert best_hash == BERT_BASE_HASH, 'If script is run for the first time, best model should be BERT-Base'
+
+	same_performance = 0
+	while same_performance < PERFORMANCE_PATIENCE:
+		# Grow current best model based on configuration
+		for sample_idx in range(config['num_grow_samples']):
+			model_dict = deepcopy(best_model_dict)
+
+			# Add a random attention operation
+			for num_ops in range(config['grow']['num_ops']):
+				layer = random.randint(0, model_dict['l']-1)
+				op = random.sample(config['allowed_ops'], 1)[0]
+				
+				layer_hidden_dim = model_dict['o'][layer][0].split('_')[2]
+				model_dict['o'][layer].append(op + '_' +  layer_hidden_dim)
+				
+			# Add a feed-forward stack
+			layer = random.randint(0, model_dict['l']-1)
+			model_dict['f'][layer].append(model_dict['f'][layer][-1])
+
+			print(model_dict)
+
+		break
+			
 
 	print(f'{pu.bcolors.OKGREEN}Convergence criterion reached!{pu.bcolors.ENDC}')
 
