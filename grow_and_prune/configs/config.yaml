@@ -3,13 +3,26 @@
 # Author : Shikhar Tuli
 
 grow:
-  ops: 1
-  feed_forward: 16
-  hidden_dim: 128
-  num_layers: 1
+  num_ops: 1
+  num_feed_forward_stacks: 1
 
 prune:
-  ops: 1
+  num_ops: 1
+  num_feed_forward_stacks: 1
   feed_forward: 16
   hidden_dim: 128
-  num_layers: 1
+
+model_transfer_mode:
+  RP
+
+num_grow_samples:
+  10
+
+allowed_ops:
+  - sa_sdp
+  - sa_wma 
+  - l_dft
+  - l_dct
+  - c_5
+  - c_9
+  - c_13
