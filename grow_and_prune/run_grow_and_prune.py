@@ -326,7 +326,30 @@ def get_feed_forward_weights(models_dir: str,
 		feed_forward_weights (list): mean weight of the feed-forward layers
 	"""
 
-	# TODO: complete this
+	# Get model dictionary
+	model_dict = json.load(open(os.path.join(models_dir, model_hash, 'model_dict.json'), 'r'))
+
+	# Finding the latest checkpoint for chosen model
+	re_checkpoint = re.compile(r"^" + PREFIX_CHECKPOINT_DIR + r"\-(\d+)$")
+	content = os.listdir(os.path.join(models_dir, model_hash))
+	checkpoints = [
+			path
+			for path in content
+			if _re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(models_dir, model_hash, path))
+		]
+	checkpoint_dir = max(checkpoints, key=lambda x: int(_re_checkpoint.search(x).groups()[0]))
+
+	# Initialize FlexiBERT model
+	model = BertForMaskedLMModular.from_pretrained(os.path.join(models_dir, model_hash, checkpoint_dir))
+
+	# Get feed-forward weights for pruning
+	for i in range(model_dict['l']):
+		for j in range(len(model_dict['f'][i])):
+			feed_forward_weight = np.mean(np.abs(model.bert.encoder.layer[i].intermediate.sequential[j].weight.cpu().numpy()), axis=1)
+			
+			feed_forward_weights.append({'layer': i, 'feed_forward_layer': j, 'mean_weight': np.mean(weights)})
+
+	return feed_forward_weights
 
 
 def main():
