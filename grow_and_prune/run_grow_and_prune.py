@@ -263,9 +263,9 @@ def get_attention_weights(models_dir: str,
 	checkpoints = [
 			path
 			for path in content
-			if _re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(models_dir, model_hash, path))
+			if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(models_dir, model_hash, path))
 		]
-	checkpoint_dir = max(checkpoints, key=lambda x: int(_re_checkpoint.search(x).groups()[0]))
+	checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
 
 	# Initialize FlexiBERT model
 	model = BertForMaskedLMModular.from_pretrained(os.path.join(models_dir, model_hash, checkpoint_dir))
@@ -273,13 +273,13 @@ def get_attention_weights(models_dir: str,
 	# Instantiate attention head weights
 	attention_weights = []
 
-	for i in range(best_model_dict['l']):
+	for i in range(model_dict['l']):
 		# Get multi-head attention for current encoder layer
 		attention_head_size = int(model_dict['o'][i][0].split('_')[2])
 		attention_layer = model.bert.encoder.layer[i].attention.self
 
 		wma_count, conv_count = 0, 0
-		for j in range(len(best_model_dict['o'][i])):
+		for j in range(len(model_dict['o'][i])):
 			# Get mean weight values for each attention head
 			query_mean = torch.mean(torch.square(
 				attention_layer.query.weight[j*attention_head_size:(j+1)*attention_head_size])).item()
@@ -311,6 +311,7 @@ def get_attention_weights(models_dir: str,
 			# print(f'Layer {i}, Attention head {j}, mean: {np.mean(weights): 0.3e}')
 			attention_weights.append({'layer': i, 'attention_head': j, 'mean_weight': np.mean(weights)})
 
+	# print(attention_weights)
 	return attention_weights
 
 
@@ -335,20 +336,25 @@ def get_feed_forward_weights(models_dir: str,
 	checkpoints = [
 			path
 			for path in content
-			if _re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(models_dir, model_hash, path))
+			if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(models_dir, model_hash, path))
 		]
-	checkpoint_dir = max(checkpoints, key=lambda x: int(_re_checkpoint.search(x).groups()[0]))
+	checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
 
 	# Initialize FlexiBERT model
 	model = BertForMaskedLMModular.from_pretrained(os.path.join(models_dir, model_hash, checkpoint_dir))
 
+	# Instantiate feed-forward weights
+	feed_forward_weights = []
+
 	# Get feed-forward weights for pruning
 	for i in range(model_dict['l']):
 		for j in range(len(model_dict['f'][i])):
-			feed_forward_weight = np.mean(np.abs(model.bert.encoder.layer[i].intermediate.sequential[j].weight.cpu().numpy()), axis=1)
+			with torch.no_grad():
+				mean_weight = np.mean(np.abs(model.bert.encoder.layer[i].intermediate.sequential[j].weight.cpu().numpy()))
 			
-			feed_forward_weights.append({'layer': i, 'feed_forward_layer': j, 'mean_weight': np.mean(weights)})
+			feed_forward_weights.append({'layer': i, 'feed_forward_layer': j, 'mean_weight': mean_weight})
 
+	# print(feed_forward_weights)
 	return feed_forward_weights
 
 
@@ -426,7 +432,7 @@ def main():
 			model_dict = deepcopy(best_model_dict)
 
 			# Get attention weights for the model
-			attention_weights = get_attention_weights(args.models_dir, model_hash)
+			attention_weights = get_attention_weights(args.models_dir, best_hash)
 
 			# Sort attention heads based on increasing mean weight
 			attention_weights.sort(key=lambda x:x['mean_weight'])
@@ -438,7 +444,7 @@ def main():
 				model_dict['o'][attention_weights[num_op]['layer']].pop(attention_weights[num_op]['attention_head'])
 
 			# Get feed-forward weights for the model
-			feed_forward_weights = get_feed_forward_weights(args.models_dir, model_hash)
+			feed_forward_weights = get_feed_forward_weights(args.models_dir, best_hash)
 
 			# Sort feed-forward based on increasing mean weight
 			feed_forward_weights.sort(key=lambda x:x['mean_weight'])
@@ -459,7 +465,7 @@ def main():
 			model_dict['h'][min_encoder_idx] -= config['prune']['hidden_prune_dim']
 			for j in range(len(model_dict['o'][min_encoder_idx])):
 				model_dict['o'][min_encoder_idx][j] = model_dict['o'][min_encoder_idx][j].split('_')[0] + '_' + \
-					model_dict['o'][min_encoder_idx][j].split('_')[1] + str(int(model_dict['h'][min_encoder_idx]/12))
+					model_dict['o'][min_encoder_idx][j].split('_')[1] + '_' + str(int(model_dict['h'][min_encoder_idx]/12))
 			
 			# Get the hash of the current model
 			model_graph = graph_util.model_dict_to_graph(model_dict)
