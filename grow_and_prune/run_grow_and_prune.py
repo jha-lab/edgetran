@@ -163,12 +163,12 @@ def print_jobs(model_jobs: list):
 	Args:
 		model_jobs (list): list of jobs
 	"""
-	header = ['ACCEL HASH', 'JOB ID', 'TRAIN TYPE', 'START TIME', 'ELAPSED TIME', 'STATUS']
+	header = ['ACCEL HASH', 'JOB ID', 'START TIME', 'ELAPSED TIME', 'STATUS']
 
 	rows = []
 	for job in model_jobs:
 		start_time, elapsed_time, status = get_job_info(job['job_id'])
-		rows.append([job['accel_hash'], job['job_id'], job['train_type'], start_time, elapsed_time, status])
+		rows.append([job['accel_hash'], job['job_id'], start_time, elapsed_time, status])
 
 	print()
 	print(tabulate.tabulate(rows, header))
@@ -237,6 +237,8 @@ def update_dataset(txf_dataset: dict,
 			best_hash = model_hash
 
 	json.dump(txf_dataset, open(txf_dataset_file, 'w+'))
+
+	print(f'Model with best loss ({best_loss}) has hash: {best_hash}')
 	
 	return best_loss, best_hash
 
@@ -297,11 +299,19 @@ def main():
 	best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
 	best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
 
+	old_best_loss = best_loss
+
 	# If this script is run for the first time, the best model is BERT-Base
 	assert best_hash == BERT_BASE_HASH, 'If script is run for the first time, best model should be BERT-Base'
 
+	# Instantiate list of jobs
+	model_jobs = []
+
 	same_performance = 0
 	while same_performance < PERFORMANCE_PATIENCE:
+		best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
+		best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
+
 		# Grow current best model based on configuration
 		for sample_idx in range(config['num_grow_samples']):
 			model_dict = deepcopy(best_model_dict)
@@ -318,7 +328,24 @@ def main():
 			layer = random.randint(0, model_dict['l']-1)
 			model_dict['f'][layer].append(model_dict['f'][layer][-1])
 
-			print(model_dict)
+			# Get the hash of the current model
+			model_graph = graph_util.model_dict_to_graph(model_dict)
+			model_hash = graph_util.hash_graph(*model_graph)
+
+			# Train sampled model
+			print(f'Training model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
+			job_id = worker(args.models_dir, model_dict, model_hash, 
+				chosen_neighbor_hash=best_hash, config=config, cluster=args.cluster, id=args.id)
+
+			model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
+
+		# Wait for jobs to complete
+		wait_for_jobs(model_jobs, txf_dataset, running_limit=0, patience=0)
+
+		# Update same_performance to check convergence
+		if best_loss == old_best_loss:
+			same_performance += 1
+		old_best_loss = best_loss
 
 		break
 			
