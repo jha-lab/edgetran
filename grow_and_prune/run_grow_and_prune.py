@@ -50,7 +50,7 @@ from transformers import (
 
 
 BERT_BASE_HASH = '07aaba14d29455a984e2aef6312a8870'
-BERT_BASE_LOSS = 1.2 # TODO: add this once BERT-Base is pre-trained
+BERT_BASE_LOSS = 1.2 # TODO: update this once BERT-Base is pre-trained
 
 CKPT_PATH = '' # Path to the grow-and-prune checkpoint
 PREFIX_CHECKPOINT_DIR = "checkpoint"
@@ -58,6 +58,7 @@ PREFIX_CHECKPOINT_DIR = "checkpoint"
 USE_GPU_EE = False # Use GPU-EE partition on della cluster
 
 PERFORMANCE_PATIENCE = 5
+PRETRAIN_STEPS = 10000 # Steps to pre-train beyond the latest checkpoint
 
 
 def worker(models_dir: str,
@@ -127,7 +128,9 @@ def worker(models_dir: str,
 			args.extend(['--partition', 'gpu-ee'])
 
 	args.extend(['--id', id])
+	args.extend(['--model_hash', model_hash])
 	args.extend(['--model_dir', model_path])
+	args.extend(['--steps', PRETRAIN_STEPS])
 	
 	slurm_stdout = subprocess.check_output(
 		f'ssh della-gpu "cd /scratch/gpfs/stuli/edge_txf/grow_and_prune; source ./job_scripts/job_worker.sh {" ".join(args)}"',
@@ -229,7 +232,7 @@ def update_dataset(txf_dataset: dict,
 		losses = [state['loss'] for state in log_history[:-1]]
 		model_dict = json.load(open(os.path.join(models_dir, model_hash, 'model_dict.json'), 'r'))
 		
-		txf_dataset[model_hash] = {'model_dict': model_dict, 'losses': losses}
+		txf_dataset[model_hash] = {'losses': losses}
 
 		if losses[-1] < best_loss:
 			best_loss = losses[-1]
