@@ -55,7 +55,7 @@ BERT_BASE_LOSS = 1.2 # TODO: update this once BERT-Base is pre-trained
 CKPT_PATH = '' # Path to the grow-and-prune checkpoint
 PREFIX_CHECKPOINT_DIR = "checkpoint"
 
-USE_GPU_EE = False # Use GPU-EE partition on della cluster
+USE_GPU_EE = 'ONLY' # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
 
 PERFORMANCE_PATIENCE = 5
 PRETRAIN_STEPS = 10000 # Steps to pre-train beyond the latest checkpoint
@@ -127,9 +127,12 @@ def worker(models_dir: str,
 
 	args = [['--cluster', cluster]]
 
-	if cluster == 'della' and USE_GPU_EE:
-		slurm_stdout = subprocess.check_output('squeue', shell=True, text=True)
-		if 'gpu-ee' not in slurm_stdout:
+	if cluster == 'della':
+		if USE_GPU_EE is True:
+			slurm_stdout = subprocess.check_output('squeue', shell=True, text=True)
+			if 'gpu-ee' not in slurm_stdout:
+				args.extend(['--partition', 'gpu-ee'])
+		elif USE_GPU_EE == 'ONLY':
 			args.extend(['--partition', 'gpu-ee'])
 
 	args.extend(['--id', id])
