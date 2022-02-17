@@ -25,6 +25,9 @@ import numpy as np
 from six.moves import cPickle as pickle
 from tqdm import tqdm
 import gc
+import tabulate
+import subprocess
+import time
 
 from utils import graph_util
 from utils import print_util as pu
@@ -83,7 +86,7 @@ def worker(models_dir: str,
 	Returns:
 		job_id (str): Job ID for the slurm scheduler
 	"""
-	print(f'Training model with hash: {model_hash} \n\tand model dictionary:\n{model_dict}.')
+	print(f'Training model with hash:\n\t{model_hash} \nand model dictionary:\n\t{model_dict}.')
 	print(f'Transfering weights from neighbor with hash: {chosen_neighbor_hash}.')
 
 	chosen_neighbor_path = os.path.join(models_dir, chosen_neighbor_hash)
@@ -125,7 +128,7 @@ def worker(models_dir: str,
 	# Save model dictionary
 	json.dump(model_dict, open(os.path.join(models_dir, model_hash, 'model_dict.json'), 'w+'))
 
-	args = [['--cluster', cluster]]
+	args = ['--cluster', cluster]
 
 	if cluster == 'della':
 		if USE_GPU_EE is True:
@@ -138,7 +141,7 @@ def worker(models_dir: str,
 	args.extend(['--id', id])
 	args.extend(['--model_hash', model_hash])
 	args.extend(['--model_dir', model_path])
-	args.extend(['--steps', PRETRAIN_STEPS])
+	args.extend(['--steps', str(PRETRAIN_STEPS)])
 	
 	slurm_stdout = subprocess.check_output(
 		f'ssh della-gpu "cd /scratch/gpfs/stuli/edge_txf/grow_and_prune; source ./job_scripts/job_worker.sh {" ".join(args)}"',
@@ -174,12 +177,12 @@ def print_jobs(model_jobs: list):
 	Args:
 		model_jobs (list): list of jobs
 	"""
-	header = ['ACCEL HASH', 'JOB ID', 'START TIME', 'ELAPSED TIME', 'STATUS']
+	header = ['MODEL HASH', 'JOB ID', 'START TIME', 'ELAPSED TIME', 'STATUS']
 
 	rows = []
 	for job in model_jobs:
 		start_time, elapsed_time, status = get_job_info(job['job_id'])
-		rows.append([job['accel_hash'], job['job_id'], start_time, elapsed_time, status])
+		rows.append([job['model_hash'], job['job_id'], start_time, elapsed_time, status])
 
 	print()
 	print(tabulate.tabulate(rows, header))
@@ -518,7 +521,6 @@ def main():
 			model_hash = graph_util.hash_graph(*model_graph)
 
 			# Train sampled model
-			print(f'Training model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
 			job_id = worker(args.models_dir, model_dict, model_hash, 
 				chosen_neighbor_hash=best_hash, config=config, cluster=args.cluster, id=args.id)
 
