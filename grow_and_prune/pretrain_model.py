@@ -18,6 +18,7 @@ import re
 import json
 
 from roberta_pretraining import pretrain
+from matplotlib import pyplot as plt
 
 import logging
 #logging.disable(logging.INFO)
@@ -43,7 +44,6 @@ def _get_training_args(seed, max_steps, per_gpu_batch_size, output_dir, local_ra
     --lr_scheduler_type linear \
     --output_dir {} \
     --local_rank {} \
-    --gradient_accumulation_steps 4 \
     --logging_steps 10 \
     --save_steps 10 \
         ".format(seed, per_gpu_batch_size, max_steps, output_dir, local_rank)
@@ -59,32 +59,31 @@ def main(args):
 	checkpoints = [
 			path
 			for path in content
-			if _re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(args.output_dir, path))
+			if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(args.output_dir, path))
 		]
 	assert len(checkpoints) > 0, f'No checkpoint found to continue pre-training in the output directory: {args.output_dir}'
-	checkpoint_dir = max(checkpoints, key=lambda x: int(_re_checkpoint.search(x).groups()[0]))
+	checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
 
 	curr_steps = int(checkpoint_dir.split('-')[1])
 	max_steps = curr_steps + args.steps
 
 	seed = 0
-	training_args = get_training_args(seed, max_steps, 16, args.output_dir, args.local_rank)
+	training_args = _get_training_args(seed, max_steps, 16, args.output_dir, args.local_rank)
 
-	if args.model_name.endswith('hetero'):
-		metrics, log_history, model = pretrain(args_train, model_dict)
+	# Get model dictionary from output directory
+	model_dict = json.load(open(os.path.join(args.output_dir, 'model_dict.json'), 'r'))
 
-		# Save log history
-		json.dump(log_history, open(os.path.join(args.output_dir, 'log_history.json'), 'w+'))
+	# Pre-train model
+	metrics, log_history, model = pretrain(training_args, model_dict)
 
-		# Plot and save log history
-		plt.plot([state['step'] for state in log_history[:-1]], [state['loss'] for state in log_history[:-1]])
-		plt.xlabel('Training steps')
-		plt.ylabel('Loss')
-		plt.savefig(os.path.join(output_dir, 'loss.pdf'))
-	else:
-		metrics = pretrain(args_train, model_dict)
+	# Save log history
+	json.dump(log_history, open(os.path.join(args.output_dir, 'log_history.json'), 'w+'))
 
-	print(f"MLM Loss on cc_news is {metrics['eval_loss']:0.2f}")
+	# Plot and save log history
+	plt.plot([state['step'] for state in log_history[:-1]], [state['loss'] for state in log_history[:-1]])
+	plt.xlabel('Training steps')
+	plt.ylabel('Loss')
+	plt.savefig(os.path.join(args.output_dir, 'loss.pdf'))
 
 
 if __name__ == '__main__':
