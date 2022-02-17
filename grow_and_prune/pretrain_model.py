@@ -7,6 +7,7 @@ import sys
 
 sys.path.append('../txf_design-space/transformers/src/')
 sys.path.append('../txf_design-space/embeddings/')
+sys.path.append('../txf_design-space/flexibert/')
 
 import os
 import torch
