@@ -11,7 +11,7 @@
 
 module purge
 module load anaconda3/2020.7
-conda activate cnnbench
+conda activate txf_design-space
 
 cd ..
 

@@ -109,11 +109,8 @@ echo "#SBATCH --cpus-per-task=24                             # cpu-cores per tas
 # echo "#SBATCH --cpus-per-task=4                              # cpu-cores per task (>1 if multi-threaded tasks)" >> $job_file
 echo "#SBATCH --mem=128G                                     # memory per cpu-core (4G is default)" >> $job_file
 # echo "#SBATCH --mem=32G                                      # memory per cpu-core (4G is default)" >> $job_file
-if [[ $train_cnn == "1" ]]
-then
-    echo "#SBATCH --gres=${cluster_gpu}                      # number of gpus per node" >> $job_file
-    # echo "#SBATCH --gres=gpu:1" >> $job_file
-fi
+echo "#SBATCH --gres=${cluster_gpu}                      # number of gpus per node" >> $job_file
+# echo "#SBATCH --gres=gpu:1" >> $job_file
 echo "#SBATCH --time=48:00:00                                # total run time limit (HH:MM:SS)" >> $job_file
 # echo "#SBATCH --time=6:00:00                                 # total run time limit (HH:MM:SS)" >> $job_file
 # echo "#SBATCH --mail-type=all                                # send email" >> $job_file
@@ -139,14 +136,14 @@ echo "" >> $job_file
 echo "for i in {0..1}" >> $job_file
 echo "do" >> $job_file
 echo -e "\tssh \${node_list_arr[\${i}]} \"conda activate txf_design-space; \\" >> $job_file
-echo -e "\t\tcd /scratch/gpfs/stuli/edge_txf/grow-and-prune/; \\" >> $job_file
+echo -e "\t\tcd /scratch/gpfs/stuli/edge_txf/grow_and_prune/; \\" >> $job_file
 echo -e "\t\tpython -m torch.distributed.launch --nproc_per_node=2 --nnodes=2 --node_rank=\${i} \\" >> $job_file
-echo -e "\t\t--master_addr=\${master_addr} --master_port=12345 pretrain_model.py --model_dir ${model_dir} --steps ${steps} --local_rank \${i}\" &" >> $job_file
+echo -e "\t\t--master_addr=\${master_addr} --master_port=12345 pretrain_model.py --output_dir ${model_dir} --steps ${steps} --local_rank \${i}\" &" >> $job_file
 echo "done" >> $job_file
 echo "" >> $job_file
 
 echo "wait" >> $job_file
 
-# sbatch $job_file
+sbatch $job_file
 
 cd ../../
