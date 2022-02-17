@@ -89,7 +89,7 @@ def worker(models_dir: str,
 	chosen_neighbor_path = os.path.join(models_dir, chosen_neighbor_hash)
 	model_path = os.path.join(models_dir, model_hash)
 
-	chosen_neighbor_model = BertModelModular.from_pretrained(chosen_neighbor_path)
+	chosen_neighbor_model = BertForMaskedLMModular.from_pretrained(chosen_neighbor_path)
 
 	# Finding the latest checkpoint for chosen neighbor
 	re_checkpoint = re.compile(r"^" + PREFIX_CHECKPOINT_DIR + r"\-(\d+)$")
@@ -97,24 +97,29 @@ def worker(models_dir: str,
 	checkpoints = [
 			path
 			for path in content
-			if _re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(chosen_neighbor_path, path))
+			if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(chosen_neighbor_path, path))
 		]
-	checkpoint_dir = max(checkpoints, key=lambda x: int(_re_checkpoint.search(x).groups()[0]))
+	checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
 
 	tokenizer = RobertaTokenizer.from_pretrained('../txf_design-space/roberta_tokenizer/')
 	config_new = BertConfig(vocab_size = tokenizer.vocab_size)
 	config_new.from_model_dict_hetero(model_dict)
 	
 	# Transfer weights from chosen neighbor to the current model
-	model = BertModelModular(config_new, transfer_mode=config['model_transfer_mode'])
-	model.load_model_from_source(chosen_neighbor_model)
+	model = BertForMaskedLMModular(config_new, transfer_mode=config['model_transfer_mode'])
+	wt_ratio = model.load_model_from_source(chosen_neighbor_model)
+
+	print(f'Weight transfer ratio: {wt_ratio}')
 
 	# Setting up checkpoint for the current model
 	if os.path.exists(model_path):
 		shutil.rmtree(model_path)
-	shutil.copytree(os.path.join(chosen_neighbor_path, checkpoint_dir), os.path.join(model_path, checkpoint_dir))
-	os.remove(os.path.join(output_dir_new, checkpoint_dir, 'optimizer.pt'))
-	# os.remove(os.path.join(output_dir_new, checkpoint_dir, 'scheduler.pt'))
+	shutil.copytree(os.path.join(chosen_neighbor_path), os.path.join(model_path))
+	try:
+		os.remove(os.path.join(model_path, checkpoint_dir, 'optimizer.pt'))
+		# os.remove(os.path.join(model_path, checkpoint_dir, 'scheduler.pt'))
+	except:
+		pass
 	model.save_pretrained(os.path.join(model_path, checkpoint_dir))
 
 	# Save model dictionary
