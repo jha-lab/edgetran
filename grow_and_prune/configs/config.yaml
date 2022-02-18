@@ -16,7 +16,7 @@ model_transfer_mode:
   RP
 
 num_grow_samples:
-  10
+  5
 
 allowed_ops:
   - sa_sdp
