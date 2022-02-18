@@ -220,7 +220,7 @@ def wait_for_jobs(model_jobs: list, txf_dataset: dict, running_limit: int = 4, p
 		if last_completed_jobs != completed_jobs:
 			print_jobs(model_jobs)
 		last_completed_jobs = completed_jobs 
-		time.sleep(1)
+		time.sleep(10)
 
 
 def update_dataset(txf_dataset: dict,
@@ -431,7 +431,7 @@ def main():
 	old_best_loss = best_loss
 
 	# If this script is run for the first time, the best model is BERT-Base
-	assert best_hash == BERT_BASE_HASH, 'If script is run for the first time, best model should be BERT-Base'
+	assert best_hash == BERT_BASE_HASH, 'If script is run for the first time, best model should be BERT-Base' # TODO: Remove after first run
 
 	# Instantiate list of jobs
 	model_jobs = []
@@ -447,10 +447,10 @@ def main():
 
 			# Get attention weights for the model
 			attention_weights = get_attention_weights(args.models_dir, best_hash)
+			attention_weights_unsorted = deepcopy(attention_weights)
 
 			# Sort attention heads based on increasing mean weight
 			attention_weights.sort(key=lambda x:x['mean_weight'])
-			attention_weights_unsorted = deepcopy(attention_weights)
 
 			# Prune attention heads
 			for num_op in range(config['prune']['num_ops']):
@@ -459,10 +459,10 @@ def main():
 
 			# Get feed-forward weights for the model
 			feed_forward_weights = get_feed_forward_weights(args.models_dir, best_hash)
+			feed_forward_weights_unsorted = deepcopy(feed_forward_weights)
 
 			# Sort feed-forward based on increasing mean weight
 			feed_forward_weights.sort(key=lambda x:x['mean_weight'])
-			feed_forward_weights_unsorted = deepcopy(feed_forward_weights)
 
 			# Prune feed-forward layers
 			for num_ff_layer in range(config['prune']['num_feed_forward_layers']):
@@ -534,7 +534,7 @@ def main():
 			same_performance += 1
 		old_best_loss = best_loss
 
-		break	
+		break # TODO: Remove after first run
 
 	print(f'{pu.bcolors.OKGREEN}Convergence criterion reached!{pu.bcolors.ENDC}')
 
