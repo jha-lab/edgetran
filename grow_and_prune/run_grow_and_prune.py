@@ -52,7 +52,7 @@ from transformers import (
 
 
 BERT_BASE_HASH = '07aaba14d29455a984e2aef6312a8870'
-BERT_BASE_LOSS = 1.2 # TODO: update this once BERT-Base is pre-trained
+BERT_BASE_LOSS = 1.3224 
 
 CKPT_PATH = '' # Path to the grow-and-prune checkpoint
 PREFIX_CHECKPOINT_DIR = "checkpoint"
