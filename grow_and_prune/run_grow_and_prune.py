@@ -16,7 +16,6 @@ import shlex
 from dataclasses import dataclass, field
 from typing import Optional
 from copy import deepcopy
-from roberta_pretraining import pretrain
 import shutil
 import random
 import yaml
@@ -58,7 +57,7 @@ BERT_BASE_LOSS = 1.2 # TODO: update this once BERT-Base is pre-trained
 CKPT_PATH = '' # Path to the grow-and-prune checkpoint
 PREFIX_CHECKPOINT_DIR = "checkpoint"
 
-USE_GPU_EE = 'ONLY' # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
+USE_GPU_EE = True # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
 
 PERFORMANCE_PATIENCE = 5
 PRETRAIN_STEPS = 10000 # Steps to pre-train beyond the latest checkpoint
@@ -110,7 +109,7 @@ def worker(models_dir: str,
 	
 	# Transfer weights from chosen neighbor to the current model
 	model = BertForMaskedLMModular(config_new, transfer_mode=config['model_transfer_mode'])
-	wt_ratio = model.load_model_from_source(chosen_neighbor_model)
+	wt_ratio = model.load_model_from_source(chosen_neighbor_model, debug=True)
 
 	print(f'Weight transfer ratio: {wt_ratio}')
 
