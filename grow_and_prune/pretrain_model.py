@@ -38,15 +38,13 @@ def _get_training_args(seed, max_steps, per_gpu_batch_size, output_dir, local_ra
     --max_steps {} \
     --adam_epsilon 1e-6 \
     --adam_beta2 0.98 \
-    --learning_rate 1000e-4 \
+    --learning_rate 1e-5 \
     --weight_decay 0.01 \
     --save_total_limit 2 \
-    --warmup_steps 10000 \
+    --warmup_steps 1000 \
     --lr_scheduler_type linear \
     --output_dir {} \
     --local_rank {} \
-    --logging_steps 10 \
-    --save_steps 10 \
         ".format(seed, per_gpu_batch_size, max_steps, output_dir, local_rank)
     return shlex.split(a)
 
