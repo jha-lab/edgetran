@@ -57,10 +57,15 @@ BERT_BASE_LOSS = 1.3224
 CKPT_PATH = '' # Path to the grow-and-prune checkpoint
 PREFIX_CHECKPOINT_DIR = "checkpoint"
 
-USE_GPU_EE = 'ONLY' # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
+USE_GPU_EE = False # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
 
 PERFORMANCE_PATIENCE = 5
 PRETRAIN_STEPS = 10000 # Steps to pre-train beyond the latest checkpoint
+
+GROW_FIRST = True # If False, model is pruned first
+GROW_FFNN = False # If False, feed-forward stack not grown
+PRUNE_FFNN = True # If False, feed-forward layers not pruned
+PRUNE_ENCODER_LAYER = True # If False, encoder hidden dimensions not pruned
 
 
 def worker(models_dir: str,
@@ -432,6 +437,8 @@ def main():
 	old_best_loss = best_loss
 
 	# If this script is run for the first time, the best model is BERT-Base
+	best_loss, best_hash = BERT_BASE_LOSS, BERT_BASE_HASH
+	best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
 	assert best_hash == BERT_BASE_HASH, 'If script is run for the first time, best model should be BERT-Base' # TODO: Remove after first run
 
 	# Instantiate list of jobs
@@ -443,7 +450,7 @@ def main():
 		best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
 
 		# Prune model based on configuration
-		if best_hash != BERT_BASE_HASH:
+		if not GROW_FIRST:
 			model_dict = deepcopy(best_model_dict)
 
 			# Get attention weights for the model
@@ -466,21 +473,23 @@ def main():
 			feed_forward_weights.sort(key=lambda x:x['mean_weight'])
 
 			# Prune feed-forward layers
-			for num_ff_layer in range(config['prune']['num_feed_forward_layers']):
-				model_dict['f'][feed_forward_weights[num_ff_layer]['layer']][feed_forward_weights[num_ff_layer]['feed_forward_layer']] -= \
-					config['prune']['feed_forward_prune_dim']
+			if PRUNE_FFNN:
+				for num_ff_layer in range(config['prune']['num_feed_forward_layers']):
+					model_dict['f'][feed_forward_weights[num_ff_layer]['layer']][feed_forward_weights[num_ff_layer]['feed_forward_layer']] -= \
+						config['prune']['feed_forward_prune_dim']
 
 			# Prune encoder layer:
-			min_encoder_weight, min_encoder_idx = np.inf, 0
-			for i in range(model_dict['l']):
-				mean_encoder_weight = np.mean([attention_weights_unsorted[i]['mean_weight'], feed_forward_weights_unsorted[i]['mean_weight']])
-				if mean_encoder_weight < min_encoder_weight:
-					min_encoder_weight = mean_encoder_weight
-					min_encoder_idx = i
-			model_dict['h'][min_encoder_idx] -= config['prune']['hidden_prune_dim']
-			for j in range(len(model_dict['o'][min_encoder_idx])):
-				model_dict['o'][min_encoder_idx][j] = model_dict['o'][min_encoder_idx][j].split('_')[0] + '_' + \
-					model_dict['o'][min_encoder_idx][j].split('_')[1] + '_' + str(int(model_dict['h'][min_encoder_idx]/12))
+			if PRUNE_ENCODER_LAYER:
+				min_encoder_weight, min_encoder_idx = np.inf, 0
+				for i in range(model_dict['l']):
+					mean_encoder_weight = np.mean([attention_weights_unsorted[i]['mean_weight'], feed_forward_weights_unsorted[i]['mean_weight']])
+					if mean_encoder_weight < min_encoder_weight:
+						min_encoder_weight = mean_encoder_weight
+						min_encoder_idx = i
+				model_dict['h'][min_encoder_idx] -= config['prune']['hidden_prune_dim']
+				for j in range(len(model_dict['o'][min_encoder_idx])):
+					model_dict['o'][min_encoder_idx][j] = model_dict['o'][min_encoder_idx][j].split('_')[0] + '_' + \
+						model_dict['o'][min_encoder_idx][j].split('_')[1] + '_' + str(int(model_dict['h'][min_encoder_idx]/12))
 			
 			# Get the hash of the current model
 			model_graph = graph_util.model_dict_to_graph(model_dict)
@@ -514,8 +523,9 @@ def main():
 				model_dict['o'][layer].append(op + '_' +  layer_hidden_dim)
 				
 			# Add a feed-forward stack
-			layer = random.randint(0, model_dict['l']-1)
-			model_dict['f'][layer].append(model_dict['f'][layer][-1])
+			if GROW_FFNN:
+				layer = random.randint(0, model_dict['l']-1)
+				model_dict['f'][layer].append(model_dict['f'][layer][-1])
 
 			# Get the hash of the current model
 			model_graph = graph_util.model_dict_to_graph(model_dict)
