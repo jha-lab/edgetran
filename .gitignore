@@ -1,5 +1,7 @@
 # Project related fles
 models/
+grow_and_prune/job_scripts/auto_gp/
+**.out
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
