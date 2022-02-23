@@ -57,7 +57,7 @@ BERT_BASE_LOSS = 1.3224
 CKPT_PATH = '' # Path to the grow-and-prune checkpoint
 PREFIX_CHECKPOINT_DIR = "checkpoint"
 
-USE_GPU_EE = True # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
+USE_GPU_EE = 'ONLY' # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
 
 PERFORMANCE_PATIENCE = 5
 PRETRAIN_STEPS = 10000 # Steps to pre-train beyond the latest checkpoint
@@ -238,6 +238,8 @@ def update_dataset(txf_dataset: dict,
 	"""
 	best_loss, best_hash = np.inf, ''
 	for model_hash in os.listdir(models_dir):
+		if not os.path.exists(os.path.join(models_dir, model_hash, 'log_history.json')): 
+			continue
 		log_history = json.load(open(os.path.join(models_dir, model_hash, 'log_history.json'), 'r'))
 		losses = [state['loss'] for state in log_history[:-1]]
 		model_dict = json.load(open(os.path.join(models_dir, model_hash, 'model_dict.json'), 'r'))
