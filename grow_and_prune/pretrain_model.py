@@ -38,7 +38,7 @@ def _get_training_args(seed, max_steps, per_gpu_batch_size, output_dir, local_ra
     --max_steps {} \
     --adam_epsilon 1e-6 \
     --adam_beta2 0.98 \
-    --learning_rate 1e-5 \
+    --learning_rate 1e-6 \
     --weight_decay 0.01 \
     --save_total_limit 2 \
     --warmup_steps 1000 \
