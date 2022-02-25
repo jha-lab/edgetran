@@ -57,7 +57,7 @@ BERT_BASE_LOSS = 1.3224
 CKPT_PATH = '' # Path to the grow-and-prune checkpoint
 PREFIX_CHECKPOINT_DIR = "checkpoint"
 
-USE_GPU_EE = False # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
+USE_GPU_EE = True # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
 
 PERFORMANCE_PATIENCE = 5
 PRETRAIN_STEPS = 10000 # Steps to pre-train beyond the latest checkpoint
@@ -66,6 +66,8 @@ GROW_FIRST = True # If False, model is pruned first
 GROW_FFNN = False # If False, feed-forward stack not grown
 PRUNE_FFNN = True # If False, feed-forward layers not pruned
 PRUNE_ENCODER_LAYER = True # If False, encoder hidden dimensions not pruned
+
+RUN_ONE_ITN_FROM_BERT_BASE = True # If True, runs one iteration of grow-and-prune from BERT-Base
 
 
 def worker(models_dir: str,
@@ -436,10 +438,10 @@ def main():
 
 	old_best_loss = best_loss
 
-	# If this script is run for the first time, the best model is BERT-Base
-	best_loss, best_hash = BERT_BASE_LOSS, BERT_BASE_HASH
-	best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
-	assert best_hash == BERT_BASE_HASH, 'If script is run for the first time, best model should be BERT-Base' # TODO: Remove after first run
+	# If this script is run for one iteration, the best model is assumed to be BERT-Base
+	if RUN_ONE_ITN_FROM_BERT_BASE:
+		best_loss, best_hash = BERT_BASE_LOSS, BERT_BASE_HASH
+		best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
 
 	# Instantiate list of jobs
 	model_jobs = []
@@ -508,7 +510,11 @@ def main():
 			best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
 			best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
 
+			# TODO: Add back-tracking
 			assert best_hash == model_hash, f'Pruned model (with hash: {model_hash}) does not give the best loss (best model with hash: {best_hash})'
+
+			if RUN_ONE_ITN_FROM_BERT_BASE:
+				return
 
 		# Grow current best model based on configuration
 		for i in range(config['num_grow_samples']):
@@ -545,7 +551,8 @@ def main():
 			same_performance += 1
 		old_best_loss = best_loss
 
-		break # TODO: Remove after first run
+		if RUN_ONE_ITN_FROM_BERT_BASE:
+			break
 
 	print(f'{pu.bcolors.OKGREEN}Convergence criterion reached!{pu.bcolors.ENDC}')
 
