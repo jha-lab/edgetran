@@ -177,6 +177,10 @@ class TxfDataset(object):
 		"""Get hash of the given model"""
 		return self.dataset.parent(model_hash).data.model_hash
 
+	def get_mode(self, model_hash: str):
+		"""Get mode  of the given model"""
+		return self.dataset.get_node(model_hash).data.mode
+
 	def show_dataset(self, data_property='loss'):
 		"""Show the current dataset in tree format
 		
