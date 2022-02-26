@@ -28,7 +28,7 @@ import tabulate
 import subprocess
 import time
 
-from txf_dataset import TxfDataset
+from txf_dataset import TxfDataset, MODES
 
 from utils import graph_util
 from utils import print_util as pu
@@ -68,9 +68,14 @@ GROW_FIRST = False # If False, model is pruned first
 GROW_FFNN = False # If False, feed-forward stack not grown
 PRUNE_FFNN = False # If False, feed-forward layers not pruned
 PRUNE_ENCODER_LAYER = False # If False, encoder hidden dimensions not pruned
-PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD = True # If True, encoder hidden dimensions are pruned when attention heads are pruned
+PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD = True # If False, encoder hidden dimensions not pruned when attention heads are pruned
 
 RUN_ONE_ITN_FROM_BERT_BASE = True # If True, runs one iteration of grow-and-prune from BERT-Base
+
+if PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
+	MODES = MODES[:-1]
+if not GROW_FIRST:
+	MODES = MODES[2:] + MODES[0:2]
 
 
 def worker(models_dir: str,
@@ -150,7 +155,7 @@ def worker(models_dir: str,
 	args.extend(['--id', id])
 	args.extend(['--model_hash', model_hash])
 	args.extend(['--model_dir', model_path])
-	args.extend(['--steps', str(PRETRAIN_STEPS)])
+	args.extend(['--steps', str(PRETRAIN_STEPS)]) #TODO: Make training steps variable based on mode
 	
 	slurm_stdout = subprocess.check_output(
 		f'ssh della-gpu "cd /scratch/gpfs/stuli/edge_txf/grow_and_prune; source ./job_scripts/job_worker.sh {" ".join(args)}"',
@@ -230,41 +235,6 @@ def wait_for_jobs(model_jobs: list, txf_dataset: dict, running_limit: int = 4, p
 			print_jobs(model_jobs)
 		last_completed_jobs = completed_jobs 
 		time.sleep(10)
-
-
-def update_dataset(txf_dataset: dict,
-	models_dir: str, 
-	txf_dataset_file: str,
-	save_dataset=True):
-	"""Update the dataset with all pre-trained models
-	
-	Args:
-		txf_dataset (dict): dictionary of transformers and their losses
-		models_dir (str): path to the models directory
-		txf_dataset_file (str): path to the transformers dataset file
-	
-	Returns:
-		best_loss, best_hash (float, str): lowest loss (and corresponding hash) among all transformers trained
-	"""
-	best_loss, best_hash = np.inf, ''
-	for model_hash in os.listdir(models_dir):
-		if not os.path.exists(os.path.join(models_dir, model_hash, 'log_history.json')): 
-			continue
-		log_history = json.load(open(os.path.join(models_dir, model_hash, 'log_history.json'), 'r'))
-		losses = [state['loss'] for state in log_history[:-1]]
-		model_dict = json.load(open(os.path.join(models_dir, model_hash, 'model_dict.json'), 'r'))
-		
-		txf_dataset[model_hash] = {'losses': losses}
-
-		if losses[-1] < best_loss:
-			best_loss = losses[-1]
-			best_hash = model_hash
-
-	json.dump(txf_dataset, open(txf_dataset_file, 'w+'))
-
-	print(f'Model with best loss ({best_loss}) has hash: {best_hash}')
-	
-	return best_loss, best_hash
 
 
 def get_attention_weights(models_dir: str,
@@ -427,38 +397,41 @@ def main():
 	# Load configurations for grow-and-prune
 	config = yaml.safe_load(open(args.config_file))
 
-	# Starts with BERT-Base
+	# Start with BERT-Base
 	best_loss = BERT_BASE_LOSS
 	best_hash = BERT_BASE_HASH
 
 	# Set and load transformer dataset
 	txf_dataset = TxfDataset(args.txf_dataset_file, args.models_dir, debug=True)
-
-	best_loss, best_hash = txf_dataset.update_dataset()
-	best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
-
-	old_best_loss = best_loss
+	if not os.path.exists(args.txf_dataset_file):
+		txf_dataset.add_node(model_hash=best_hash, mode=None, loss=best_loss, parent_model_hash=None)
 
 	# If this script is run for one iteration, the best model is assumed to be BERT-Base
 	if RUN_ONE_ITN_FROM_BERT_BASE:
 		best_loss, best_hash = BERT_BASE_LOSS, BERT_BASE_HASH
-		best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
+	else:
+		best_loss, best_hash = txf_dataset.update_dataset()
+	best_model_dict = txf_dataset.get_model_dict(best_hash)
+
+	old_best_loss = best_loss
 
 	# Instantiate list of jobs
 	model_jobs = []
 
-	same_performance = 0
-	while same_performance < PERFORMANCE_PATIENCE:
-		best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
-		best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
+	same_performance, iteration = 0, 0
 
-		# If this script is run for one iteration, the best model is assumed to be BERT-Base
-		if RUN_ONE_ITN_FROM_BERT_BASE:
-			best_loss, best_hash = BERT_BASE_LOSS, BERT_BASE_HASH
-			best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
+	if best_hash != BERT_BASE_HASH:
+		latest_mode = txf_dataset.get_mode(best_hash)
+		iteration = MODES.index(latest_mode) + 1
+
+	while same_performance < PERFORMANCE_PATIENCE:
+		# Get current mode for grow-and-prune
+		mode = MODES[iteration % len(MODES)]
+		print(f'{pu.bcolors.OKBLUE}Current mode for grow-and-prune: {mode}{pu.bcolors.ENDC}')
+		iteration += 1
 
 		# Prune model based on configuration
-		if not GROW_FIRST:
+		if mode.startswith('prune'):
 			model_dict = deepcopy(best_model_dict)
 
 			# Get attention weights for the model
@@ -468,17 +441,6 @@ def main():
 			# Sort attention heads based on increasing mean weight
 			attention_weights.sort(key=lambda x:x['mean_weight'])
 
-			# Prune attention heads
-			for num_op in range(config['prune']['num_ops']):
-				# Reduce hidden dimension for the encoder layer based on that attention head
-				if PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
-					model_dict['h'][attention_weights[num_op]['layer']] -= \
-						int(model_dict['o'][attention_weights[num_op]['layer']][attention_weights[num_op]['attention_head']].split('_')[2])
-
-				# Remove attention head with lowest mean weight values
-				model_dict['o'][attention_weights[num_op]['layer']].pop(attention_weights[num_op]['attention_head'])
-
-
 			# Get feed-forward weights for the model
 			feed_forward_weights = get_feed_forward_weights(args.models_dir, best_hash)
 			feed_forward_weights_unsorted = deepcopy(feed_forward_weights)
@@ -486,14 +448,25 @@ def main():
 			# Sort feed-forward based on increasing mean weight
 			feed_forward_weights.sort(key=lambda x:x['mean_weight'])
 
-			# Prune feed-forward layers
-			if PRUNE_FFNN:
+			if mode == 'prune_attn_head':
+				# Prune attention heads
+				for num_op in range(config['prune']['num_ops']):
+					# Reduce hidden dimension for the encoder layer based on that attention head
+					if PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
+						model_dict['h'][attention_weights[num_op]['layer']] -= \
+							int(model_dict['o'][attention_weights[num_op]['layer']][attention_weights[num_op]['attention_head']].split('_')[2])
+
+					# Remove attention head with lowest mean weight values
+					model_dict['o'][attention_weights[num_op]['layer']].pop(attention_weights[num_op]['attention_head'])
+
+			elif mode == 'prune_ffnn' and PRUNE_FFNN:
+				# Prune feed-forward layers
 				for num_ff_layer in range(config['prune']['num_feed_forward_layers']):
 					model_dict['f'][feed_forward_weights[num_ff_layer]['layer']][feed_forward_weights[num_ff_layer]['feed_forward_layer']] -= \
 						config['prune']['feed_forward_prune_dim']
 
-			# Prune encoder layer:
-			if PRUNE_ENCODER_LAYER and not PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
+			elif mode == 'prune_encoder_layer' and PRUNE_ENCODER_LAYER and not PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
+				# Prune encoder layer
 				min_encoder_weight, min_encoder_idx = np.inf, 0
 				for i in range(model_dict['l']):
 					mean_encoder_weight = np.mean([attention_weights_unsorted[i]['mean_weight'], feed_forward_weights_unsorted[i]['mean_weight']])
@@ -504,10 +477,13 @@ def main():
 				for j in range(len(model_dict['o'][min_encoder_idx])):
 					model_dict['o'][min_encoder_idx][j] = model_dict['o'][min_encoder_idx][j].split('_')[0] + '_' + \
 						model_dict['o'][min_encoder_idx][j].split('_')[1] + '_' + str(int(model_dict['h'][min_encoder_idx]/12))
-			
+				
 			# Get the hash of the current model
 			model_graph = graph_util.model_dict_to_graph(model_dict)
 			model_hash = graph_util.hash_graph(*model_graph, model_dict=model_dict)
+
+			# Add model to dataset
+			txf_dataset.add_node(model_hash=model_hash, mode=mode, loss=None, parent_model_hash=best_hash)
 
 			# Train pruned model
 			print(f'Training pruned model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
@@ -516,47 +492,47 @@ def main():
 
 			model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
-			# Wait for jobs to complete
-			wait_for_jobs(model_jobs, txf_dataset, running_limit=0, patience=0)
+		# Grow model based on configuration
+		if mode.startswith('grow'):
+			for i in range(config['num_grow_samples']):
+				model_dict = deepcopy(best_model_dict)
 
-			best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
-			best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
-
-			# TODO: Add back-tracking
-			assert best_hash == model_hash, f'Pruned model (with hash: {model_hash}) does not give the best loss (best model with hash: {best_hash})'
-
-			if RUN_ONE_ITN_FROM_BERT_BASE:
-				break
-
-		# Grow current best model based on configuration
-		for i in range(config['num_grow_samples']):
-			model_dict = deepcopy(best_model_dict)
-
-			# Add a random attention operation
-			for num_op in range(config['grow']['num_ops']):
-				layer = random.randint(0, model_dict['l']-1)
-				op = random.sample(config['allowed_ops'], 1)[0]
+				if mode == 'grow_attn_head':
+					# Add a random attention operation
+					for num_op in range(config['grow']['num_ops']):
+						layer = random.randint(0, model_dict['l']-1)
+						op = random.sample(config['allowed_ops'], 1)[0]
+						
+						layer_hidden_dim = model_dict['o'][layer][0].split('_')[2]
+						model_dict['o'][layer].append(op + '_' +  layer_hidden_dim)
 				
-				layer_hidden_dim = model_dict['o'][layer][0].split('_')[2]
-				model_dict['o'][layer].append(op + '_' +  layer_hidden_dim)
-				
-			# Add a feed-forward stack
-			if GROW_FFNN:
-				layer = random.randint(0, model_dict['l']-1)
-				model_dict['f'][layer].append(model_dict['f'][layer][-1])
+				elif mode == 'grow_ffnn' and GROW_FFNN:
+				# Add a feed-forward stack
+					layer = random.randint(0, model_dict['l']-1)
+					model_dict['f'][layer].append(model_dict['f'][layer][-1])
 
-			# Get the hash of the current model
-			model_graph = graph_util.model_dict_to_graph(model_dict)
-			model_hash = graph_util.hash_graph(*model_graph)
+				# Get the hash of the current model
+				model_graph = graph_util.model_dict_to_graph(model_dict)
+				model_hash = graph_util.hash_graph(*model_graph, model_dict=model_dict)
 
-			# Train sampled model
-			job_id = worker(args.models_dir, model_dict, model_hash, 
-				chosen_neighbor_hash=best_hash, config=config, cluster=args.cluster, id=args.id)
+				# Add model to dataset
+				txf_dataset.add_node(model_hash=model_hash, mode=mode, loss=None, parent_model_hash=best_hash)
 
-			model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
+				# Train sampled model
+				job_id = worker(args.models_dir, model_dict, model_hash, 
+					chosen_neighbor_hash=best_hash, config=config, cluster=args.cluster, id=args.id)
+
+				model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
 		# Wait for jobs to complete
 		wait_for_jobs(model_jobs, txf_dataset, running_limit=0, patience=0)
+
+		# Update best loss and hash
+		best_loss, best_hash = txf_dataset.update_dataset()
+		best_model_dict = txf_dataset.get_model_dict(best_hash)
+
+		# TODO: Add back-tracking
+		assert best_hash == model_hash, f'Pruned model (with hash: {model_hash}) does not give the best loss (best model with hash: {best_hash})'
 
 		# Update same_performance to check convergence
 		if best_loss == old_best_loss:
@@ -571,5 +547,3 @@ def main():
 
 if __name__ == '__main__':
 	main()
-
-
