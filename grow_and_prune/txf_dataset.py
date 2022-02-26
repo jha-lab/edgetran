@@ -107,18 +107,18 @@ class TxfDataset(object):
 		"""
 		return eval(str(self.dataset.to_dict(with_data=with_data)))
 
-	def add_node(self, parent_model_hash: str, model_hash: str, mode: str, loss=None):
+	def add_node(self, model_hash: str, mode: str, loss=None, parent_model_hash=None):
 		"""Add a TxfNode object to the current graph
 		
 		Args:
-			parent_model_hash (str): hash of the parent model
 		    model_hash (str): hash of the given model
 			mode (str): mode of change from parent, None if root
 		    loss (None, optional): lowest value in losses
+		    parent_model_hash (str, optional): hash of the parent model
 		"""
 		self.dataset.create_node(tag=model_hash, 
 			identifier=model_hash, 
-			parent=self.dataset.get_node(parent_model_hash), 
+			parent=self.dataset.get_node(parent_model_hash) if parent_model_hash is not None else None, 
 			data=TxfNode(model_hash, mode, loss))
 
 	def update_dataset(self, save_dataset=True):
