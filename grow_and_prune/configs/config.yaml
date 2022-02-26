@@ -8,7 +8,7 @@ grow:
 
 prune:
   num_ops: 2
-  num_feed_forward_layers: 3
+  num_feed_forward_layers: 2
   feed_forward_prune_dim: 128
   hidden_prune_dim: 48
 
