@@ -9,8 +9,9 @@ import sys
 sys.path.append('../../txf_design-space/embeddings')
 sys.path.append('../../txf_design-space/flexibert')
 
-from treelib import Tree, Node
 import json
+import numpy as np
+from treelib import Tree, Node
 
 from utils import print_util as pu
 
@@ -56,7 +57,7 @@ class TxfDataset(object):
 		if os.path.exists(self.dataset_file):
 			self.load_dataset(self.dataset_file)
 			if self.debug:
-				print(f'{pu.bcolors.OKGREEN}Loaded dataset from file{pu.bcolros.ENDC}')
+				print(f'{pu.bcolors.OKGREEN}Loaded dataset from file{pu.bcolors.ENDC}')
 
 	def _load_tree(self, tree: Tree, tree_dict: dict, parent=None):
 		"""Recursive function to load the tree
@@ -93,7 +94,7 @@ class TxfDataset(object):
 
 	def save_dataset(self):
 		"""Save the dataset to file"""
-		json.dump(eval(str(self.dataset.to_dict(with_data=True))), open(self.dataset_file, 'w+'))
+		json.dump(self.to_dict(with_data=True), open(self.dataset_file, 'w+'))
 
 	def to_dict(self, with_data=True):
 		"""Get dictionary object of tree dataset
@@ -105,4 +106,82 @@ class TxfDataset(object):
 		    dict: dictionary object of current tree dataset
 		"""
 		return eval(str(self.dataset.to_dict(with_data=with_data)))
+
+	def add_node(self, parent_model_hash: str, model_hash: str, mode: str, loss=None):
+		"""Add a TxfNode object to the current graph
+		
+		Args:
+			parent_model_hash (str): hash of the parent model
+		    model_hash (str): hash of the given model
+			mode (str): mode of change from parent, None if root
+		    loss (None, optional): lowest value in losses
+		"""
+		self.dataset.create_node(tag=model_hash, 
+			identifier=model_hash, 
+			parent=self.dataset.get_node(parent_model_hash), 
+			data=TxfNode(model_hash, mode, loss))
+
+	def update_dataset(self, save_dataset=True):
+		"""Update the dataset based on trained models in models_dir
+		
+		Args:
+		    save_dataset (bool, optional): save dataset after update
+		
+		Returns:
+		    float, str: best loss and hash
+		"""
+		best_loss, best_hash = np.inf, ''
+		for model_hash in os.listdir(models_dir):
+			if not os.path.exists(os.path.join(self.models_dir, model_hash, 'log_history.json')): 
+				continue
+
+			log_history = json.load(open(os.path.join(self.models_dir, model_hash, 'log_history.json'), 'r'))
+			losses = [state['loss'] for state in log_history[:-1]]
+			
+			self.dataset[model_hash].data.loss = min(losses)
+
+			if self.dataset[model_hash].data.loss < best_loss:
+				best_loss = self.dataset[model_hash].data.loss
+				best_hash = model_hash
+
+		if save_dataset: self.save_dataset()
+
+		if self.debug:
+			print(f'{pu.bcolors.OKBLUE}Model with best loss ({best_loss}) has hash: {best_hash}{pu.bcolors.ENDC}')
+		
+		return best_loss, best_hash
+
+	def get_log_history(self, model_hash: str):
+		"""Get log history of the given model
+
+		Args:
+		    model_hash (str): hash of the given model
+
+		Returns:
+			dict: log history of the given model
+		"""
+		return json.load(open(os.path.join(self.models_dir, model_hash, 'log_history.json'), 'r'))
+
+	def get_model_dict(self, model_hash: str):
+		"""Get model dictionary of the given model
+
+		Args:
+		    model_hash (str): hash of the given model
+
+		Returns:
+			dict: model dictionary of the model
+		"""
+		return json.load(open(os.path.join(self.models_dir, model_hash, 'model_dict.json'), 'r'))
+
+	def get_parent_hash(self, model_hash: str):
+		"""Get hash of the given model"""
+		return self.dataset.parent(model_hash).data.model_hash
+
+	def show_dataset(self, data_property='loss'):
+		"""Show the current dataset in tree format
+		
+		Args:
+		    data_property (str, optional): data_property attribute of treelib.Tree
+		"""
+		self.dataset.show(data_property=data_property, idhidden=False, line_type='ascii-exr')
 
