@@ -53,8 +53,8 @@ from transformers import (
 )
 
 
-BERT_BASE_HASH = '07aaba14d29455a984e2aef6312a8870'
-BERT_BASE_LOSS = 1.3224 
+BERT_BASE_HASH = '8b20da51c159887b310cabce176da7fb'
+BERT_BASE_LOSS = 1.322 
 
 CKPT_PATH = '' # Path to the grow-and-prune checkpoint
 PREFIX_CHECKPOINT_DIR = "checkpoint"
@@ -68,7 +68,6 @@ GROW_FIRST = False # If False, model is pruned first
 GROW_FFNN = False # If False, feed-forward stack not grown
 PRUNE_FFNN = False # If False, feed-forward layers not pruned
 PRUNE_ENCODER_LAYER = False # If False, encoder hidden dimensions not pruned
-
 PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD = True # If True, encoder hidden dimensions are pruned when attention heads are pruned
 
 RUN_ONE_ITN_FROM_BERT_BASE = True # If True, runs one iteration of grow-and-prune from BERT-Base
@@ -432,12 +431,10 @@ def main():
 	best_loss = BERT_BASE_LOSS
 	best_hash = BERT_BASE_HASH
 
-	# Get transformer dataset
-	txf_dataset = {}
-	if os.path.exists(args.txf_dataset_file):
-		txf_dataset = json.load(open(args.txf_dataset_file, 'r'))
+	# Set and load transformer dataset
+	txf_dataset = TxfDataset(args.txf_dataset_file, args.models_dir, debug=True)
 
-	best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
+	best_loss, best_hash = txf_dataset.update_dataset()
 	best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
 
 	old_best_loss = best_loss
@@ -520,7 +517,7 @@ def main():
 			model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
 			# Wait for jobs to complete
-			# wait_for_jobs(model_jobs, txf_dataset, running_limit=0, patience=0)
+			wait_for_jobs(model_jobs, txf_dataset, running_limit=0, patience=0)
 
 			best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
 			best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
