@@ -2,6 +2,7 @@
 models/
 grow_and_prune/job_scripts/auto_gp/
 **.out
+tests/test_dataset.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
