@@ -28,6 +28,8 @@ import tabulate
 import subprocess
 import time
 
+from txf_dataset import TxfDataset
+
 from utils import graph_util
 from utils import print_util as pu
 
@@ -62,10 +64,12 @@ USE_GPU_EE = True # Use GPU-EE partition on della cluster (False, True, or 'ONLY
 PERFORMANCE_PATIENCE = 5
 PRETRAIN_STEPS = 10000 # Steps to pre-train beyond the latest checkpoint
 
-GROW_FIRST = True # If False, model is pruned first
+GROW_FIRST = False # If False, model is pruned first
 GROW_FFNN = False # If False, feed-forward stack not grown
-PRUNE_FFNN = True # If False, feed-forward layers not pruned
-PRUNE_ENCODER_LAYER = True # If False, encoder hidden dimensions not pruned
+PRUNE_FFNN = False # If False, feed-forward layers not pruned
+PRUNE_ENCODER_LAYER = False # If False, encoder hidden dimensions not pruned
+
+PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD = True # If True, encoder hidden dimensions are pruned when attention heads are pruned
 
 RUN_ONE_ITN_FROM_BERT_BASE = True # If True, runs one iteration of grow-and-prune from BERT-Base
 
@@ -215,7 +219,7 @@ def wait_for_jobs(model_jobs: list, txf_dataset: dict, running_limit: int = 4, p
 			_, _, status = get_job_info(job['job_id'])
 			if status == 'COMPLETED': 
 				completed_jobs += 1
-			elif status == 'PENDING':
+			elif status == 'PENDING' or status == 'UNKNOWN':
 				pending_jobs += 1
 			elif status == 'RUNNING':
 				running_jobs += 1
@@ -451,6 +455,11 @@ def main():
 		best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
 		best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
 
+		# If this script is run for one iteration, the best model is assumed to be BERT-Base
+		if RUN_ONE_ITN_FROM_BERT_BASE:
+			best_loss, best_hash = BERT_BASE_LOSS, BERT_BASE_HASH
+			best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
+
 		# Prune model based on configuration
 		if not GROW_FIRST:
 			model_dict = deepcopy(best_model_dict)
@@ -464,8 +473,14 @@ def main():
 
 			# Prune attention heads
 			for num_op in range(config['prune']['num_ops']):
+				# Reduce hidden dimension for the encoder layer based on that attention head
+				if PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
+					model_dict['h'][attention_weights[num_op]['layer']] -= \
+						int(model_dict['o'][attention_weights[num_op]['layer']][attention_weights[num_op]['attention_head']].split('_')[2])
+
 				# Remove attention head with lowest mean weight values
 				model_dict['o'][attention_weights[num_op]['layer']].pop(attention_weights[num_op]['attention_head'])
+
 
 			# Get feed-forward weights for the model
 			feed_forward_weights = get_feed_forward_weights(args.models_dir, best_hash)
@@ -481,7 +496,7 @@ def main():
 						config['prune']['feed_forward_prune_dim']
 
 			# Prune encoder layer:
-			if PRUNE_ENCODER_LAYER:
+			if PRUNE_ENCODER_LAYER and not PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
 				min_encoder_weight, min_encoder_idx = np.inf, 0
 				for i in range(model_dict['l']):
 					mean_encoder_weight = np.mean([attention_weights_unsorted[i]['mean_weight'], feed_forward_weights_unsorted[i]['mean_weight']])
@@ -495,7 +510,7 @@ def main():
 			
 			# Get the hash of the current model
 			model_graph = graph_util.model_dict_to_graph(model_dict)
-			model_hash = graph_util.hash_graph(*model_graph)
+			model_hash = graph_util.hash_graph(*model_graph, model_dict=model_dict)
 
 			# Train pruned model
 			print(f'Training pruned model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
@@ -505,7 +520,7 @@ def main():
 			model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
 			# Wait for jobs to complete
-			wait_for_jobs(model_jobs, txf_dataset, running_limit=0, patience=0)
+			# wait_for_jobs(model_jobs, txf_dataset, running_limit=0, patience=0)
 
 			best_loss, best_hash = update_dataset(txf_dataset, args.models_dir, args.txf_dataset_file)
 			best_model_dict = json.load(open(os.path.join(args.models_dir, best_hash, 'model_dict.json'), 'r'))
@@ -514,7 +529,7 @@ def main():
 			assert best_hash == model_hash, f'Pruned model (with hash: {model_hash}) does not give the best loss (best model with hash: {best_hash})'
 
 			if RUN_ONE_ITN_FROM_BERT_BASE:
-				return
+				break
 
 		# Grow current best model based on configuration
 		for i in range(config['num_grow_samples']):
