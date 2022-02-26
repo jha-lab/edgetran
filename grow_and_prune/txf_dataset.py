@@ -82,7 +82,7 @@ class TxfDataset(object):
 
 		return tree
 
-	def load_from_dataset_dict(self, dataset_file: str):
+	def load_dataset(self, dataset_file: str):
 		"""Load the tree dataset
 		
 		Args:
@@ -91,11 +91,11 @@ class TxfDataset(object):
 		dataset_dict = json.load(open(dataset_file, 'r'))
 		self.dataset = self._load_tree(Tree(), dataset_dict)
 
-	def save_dataset_dict(self):
+	def save_dataset(self):
 		"""Save the dataset to file"""
 		json.dump(eval(str(self.dataset.to_dict(with_data=True))), open(self.dataset_file, 'w+'))
 
-	def to_dict(self, with_data: bool):
+	def to_dict(self, with_data=True):
 		"""Get dictionary object of tree dataset
 		
 		Args:
@@ -104,5 +104,5 @@ class TxfDataset(object):
 		Returns:
 		    dict: dictionary object of current tree dataset
 		"""
-		return eval(str(self.dataset.to_dict(with_data=True)))
+		return eval(str(self.dataset.to_dict(with_data=with_data)))
 
