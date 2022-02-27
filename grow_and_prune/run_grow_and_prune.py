@@ -55,6 +55,7 @@ from transformers import (
 
 BERT_BASE_HASH = '8b20da51c159887b310cabce176da7fb'
 BERT_BASE_LOSS = 1.322 
+BERT_BASE_STEPS = 100000
 
 CKPT_PATH = '' # Path to the grow-and-prune checkpoint
 PREFIX_CHECKPOINT_DIR = "checkpoint"
@@ -62,15 +63,20 @@ PREFIX_CHECKPOINT_DIR = "checkpoint"
 USE_GPU_EE = True # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
 
 PERFORMANCE_PATIENCE = 5
-PRETRAIN_STEPS = 10000 # Steps to pre-train beyond the latest checkpoint
+PRETRAIN_STEPS = {'grow_attn_head': 10000,
+				  'grow_ffnn': 15000,
+				  'prune_attn_head': 20000, # High no. of steps, assuming encoder layer is also pruned
+				  'prune_ffnn': 15000,
+				  'prune_encoder_layer': 15000} # Steps to pre-train beyond the latest checkpoint
 
-GROW_FIRST = False # If False, model is pruned first
-GROW_FFNN = False # If False, feed-forward stack not grown
-PRUNE_FFNN = False # If False, feed-forward layers not pruned
+GROW_FIRST = True # If False, model is pruned first
+GROW_FFNN = True # If False, feed-forward stack not grown
+PRUNE_FFNN = True # If False, feed-forward layers not pruned
 PRUNE_ENCODER_LAYER = False # If False, encoder hidden dimensions not pruned
 PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD = True # If False, encoder hidden dimensions not pruned when attention heads are pruned
 
-RUN_ONE_ITN_FROM_BERT_BASE = True # If True, runs one iteration of grow-and-prune from BERT-Base
+RUN_ONE_ITN_FROM_BERT_BASE = False # If True, runs one iteration of grow-and-prune from BERT-Base
+BACKTRACK = False # If True, runs back-tracking
 
 if PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
 	MODES = MODES[:-1]
@@ -82,6 +88,7 @@ def worker(models_dir: str,
 	model_dict: dict,
 	model_hash: str,
 	chosen_neighbor_hash: str,
+	steps: int,
 	config: dict,
 	cluster: str,
 	id: str):
@@ -93,6 +100,7 @@ def worker(models_dir: str,
 		models_dir (str): path to the models directory
 		model_hash (str): hash of the given model
 		chosen_neighbor_hash (str): hash of the chosen neighbor
+		steps (int): number of steps for pre-training
 		config (dict): configuration for grow-and-prune
 		cluster (str): name of the cluster - "adroit", "tiger" or "della"
 		id (str): PU-NetID that is used to run slurm commands
@@ -155,7 +163,7 @@ def worker(models_dir: str,
 	args.extend(['--id', id])
 	args.extend(['--model_hash', model_hash])
 	args.extend(['--model_dir', model_path])
-	args.extend(['--steps', str(PRETRAIN_STEPS)]) #TODO: Make training steps variable based on mode
+	args.extend(['--steps', steps])
 	
 	slurm_stdout = subprocess.check_output(
 		f'ssh della-gpu "cd /scratch/gpfs/stuli/edge_txf/grow_and_prune; source ./job_scripts/job_worker.sh {" ".join(args)}"',
@@ -404,7 +412,7 @@ def main():
 	# Set and load transformer dataset
 	txf_dataset = TxfDataset(args.txf_dataset_file, args.models_dir, debug=True)
 	if not os.path.exists(args.txf_dataset_file):
-		txf_dataset.add_node(model_hash=best_hash, mode=None, loss=best_loss, parent_model_hash=None)
+		txf_dataset.add_node(model_hash=best_hash, mode=None, loss=best_loss, steps=BERT_BASE_STEPS, parent_model_hash=None)
 
 	# If this script is run for one iteration, the best model is assumed to be BERT-Base
 	if RUN_ONE_ITN_FROM_BERT_BASE:
@@ -483,12 +491,12 @@ def main():
 			model_hash = graph_util.hash_graph(*model_graph, model_dict=model_dict)
 
 			# Add model to dataset
-			txf_dataset.add_node(model_hash=model_hash, mode=mode, loss=None, parent_model_hash=best_hash)
+			txf_dataset.add_node(model_hash=model_hash, mode=mode, loss=None, steps=None, parent_model_hash=best_hash)
 
 			# Train pruned model
 			print(f'Training pruned model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
 			job_id = worker(args.models_dir, model_dict, model_hash, 
-				chosen_neighbor_hash=best_hash, config=config, cluster=args.cluster, id=args.id)
+				chosen_neighbor_hash=best_hash, steps=PRETRAIN_STEPS[mode], config=config, cluster=args.cluster, id=args.id)
 
 			model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
@@ -516,11 +524,12 @@ def main():
 				model_hash = graph_util.hash_graph(*model_graph, model_dict=model_dict)
 
 				# Add model to dataset
-				txf_dataset.add_node(model_hash=model_hash, mode=mode, loss=None, parent_model_hash=best_hash)
+				txf_dataset.add_node(model_hash=model_hash, mode=mode, loss=None, steps=None, parent_model_hash=best_hash)
 
 				# Train sampled model
+				print(f'Training grown model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
 				job_id = worker(args.models_dir, model_dict, model_hash, 
-					chosen_neighbor_hash=best_hash, config=config, cluster=args.cluster, id=args.id)
+					chosen_neighbor_hash=best_hash, steps=PRETRAIN_STEPS[mode], config=config, cluster=args.cluster, id=args.id)
 
 				model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
@@ -529,11 +538,35 @@ def main():
 
 		# Update best loss and hash
 		best_loss, best_hash = txf_dataset.update_dataset()
+
+		if best_hash != model_hash:
+			print(f'{pu.bcolors.WARNING}Latest model (with hash: {model_hash}) does not give the best loss (best model with hash: {best_hash}){pu.bcolors.ENDC}')
+			if BACKTRACK:
+				print(f'{pu.bcolors.OKBLUE}Back-tracking...{pu.bcolors.ENDC}')
+				best_loss, best_hash = txf_dataset.get_next_best_model()
+				while not (txf_dataset.is_root(best_hash) or (txf_dataset.get_mode(best_hash).startswith('grow') and not txf_dataset.has_children(best_hash))):
+					best_loss, best_hash = txf_dataset.get_next_best_model()
+				if txf_dataset.is_root(best_hash): 
+					# If we are at the root node, we need to start again (either grow, or if GROW_FIRST is False, prune)
+					iteration = 0
+				else:
+					# Go to next mode
+					iteraton = MODES.index(txf_dataset.get_mode(best_hash)) + 1
+				print(f'Running mode {MODES[iteration]} on the next best unexplored hash: {best_hash}')
+			elif mode.startswith('prune'):
+				# Implement soft reduction in loss, should continue till next grow mode even if loss not decreased
+				print(f'{pu.bcolors.OKBLUE}Latest model was pruned. Continuing till next grow mode...{pu.bcolors.ENDC}')
+			else:
+				raise RuntimeError(f'Latest model (with hash: {model_hash}) does not give the best loss (best model with hash: {best_hash})')
+		else:
+			print(f'{pu.bcolors.OKGREEN}Latest model (with hash: {model_hash}) gives the best loss. Continuing grow-and-prune...{pu.bcolors.ENDC}')
+
 		best_model_dict = txf_dataset.get_model_dict(best_hash)
 
-		# TODO: Add back-tracking
-		assert best_hash == model_hash, f'Pruned model (with hash: {model_hash}) does not give the best loss (best model with hash: {best_hash})'
-
+		# Show the current dataset
+		print(f'Current tree dataset:')
+		txf_dataset.show_dataset()
+				
 		# Update same_performance to check convergence
 		if best_loss == old_best_loss:
 			same_performance += 1
