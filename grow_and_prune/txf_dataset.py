@@ -141,7 +141,7 @@ class TxfDataset(object):
 		    float, str: best loss and hash
 		"""
 		best_loss, best_hash = np.inf, ''
-		for model_hash in os.listdir(models_dir):
+		for model_hash in os.listdir(self.models_dir):
 			if not os.path.exists(os.path.join(self.models_dir, model_hash, 'log_history.json')): 
 				continue
 
