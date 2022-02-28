@@ -163,7 +163,7 @@ def worker(models_dir: str,
 	args.extend(['--id', id])
 	args.extend(['--model_hash', model_hash])
 	args.extend(['--model_dir', model_path])
-	args.extend(['--steps', steps])
+	args.extend(['--steps', str(steps)])
 	
 	slurm_stdout = subprocess.check_output(
 		f'ssh della-gpu "cd /scratch/gpfs/stuli/edge_txf/grow_and_prune; source ./job_scripts/job_worker.sh {" ".join(args)}"',
@@ -414,6 +414,10 @@ def main():
 	if not os.path.exists(args.txf_dataset_file):
 		txf_dataset.add_node(model_hash=best_hash, mode=None, loss=best_loss, steps=BERT_BASE_STEPS, parent_model_hash=None)
 
+	# Show the current dataset
+	print(f'Current tree dataset:')
+	txf_dataset.show_dataset()
+
 	# If this script is run for one iteration, the best model is assumed to be BERT-Base
 	if RUN_ONE_ITN_FROM_BERT_BASE:
 		best_loss, best_hash = BERT_BASE_LOSS, BERT_BASE_HASH
@@ -501,7 +505,8 @@ def main():
 			model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
 		# Grow model based on configuration
-		if mode.startswith('grow'):
+		elif mode.startswith('grow'):
+			layers_done = []
 			for i in range(config['num_grow_samples']):
 				model_dict = deepcopy(best_model_dict)
 
@@ -515,8 +520,12 @@ def main():
 						model_dict['o'][layer].append(op + '_' +  layer_hidden_dim)
 				
 				elif mode == 'grow_ffnn' and GROW_FFNN:
-				# Add a feed-forward stack
+					# Add a feed-forward stack
 					layer = random.randint(0, model_dict['l']-1)
+					while layer in layers_done:
+						layer = random.randint(0, model_dict['l']-1)
+					layers_done.append(layer)
+
 					model_dict['f'][layer].append(model_dict['f'][layer][-1])
 
 				# Get the hash of the current model
