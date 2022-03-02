@@ -63,10 +63,10 @@ PREFIX_CHECKPOINT_DIR = "checkpoint"
 USE_GPU_EE = True # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
 
 PERFORMANCE_PATIENCE = 5
-PRETRAIN_STEPS = {'grow_attn_head': 10000,
-				  'grow_ffnn': 15000,
-				  'prune_attn_head': 20000, # High no. of steps, assuming encoder layer is also pruned
-				  'prune_ffnn': 15000,
+PRETRAIN_STEPS = {'grow_attn_head': 20000,
+				  'grow_ffnn': 20000,
+				  'prune_attn_head': 30000, # High no. of steps, assuming encoder layer is also pruned
+				  'prune_ffnn': 20000,
 				  'prune_encoder_layer': 15000} # Steps to pre-train beyond the latest checkpoint
 
 GROW_FIRST = True # If False, model is pruned first
@@ -353,7 +353,7 @@ def get_feed_forward_weights(models_dir: str,
 	for i in range(model_dict['l']):
 		for j in range(len(model_dict['f'][i])):
 			with torch.no_grad():
-				mean_weight = np.mean(np.abs(model.bert.encoder.layer[i].intermediate.sequential[j].weight.cpu().numpy()))
+				mean_weight = np.mean(np.abs(model.bert.encoder.layer[i].intermediate.sequential[2*j].weight.cpu().numpy()))
 			
 			feed_forward_weights.append({'layer': i, 'feed_forward_layer': j, 'mean_weight': mean_weight})
 
@@ -412,7 +412,7 @@ def main():
 	# Set and load transformer dataset
 	txf_dataset = TxfDataset(args.txf_dataset_file, args.models_dir, debug=True)
 	if not os.path.exists(args.txf_dataset_file):
-		txf_dataset.add_node(model_hash=best_hash, mode=None, loss=best_loss, steps=BERT_BASE_STEPS, parent_model_hash=None)
+		txf_dataset.add_node(model_hash=best_hash, mode=None, loss=best_loss, params=None, steps=BERT_BASE_STEPS, parent_model_hash=None)
 
 	# Show the current dataset
 	print(f'Current tree dataset:')
@@ -441,6 +441,9 @@ def main():
 		mode = MODES[iteration % len(MODES)]
 		print(f'{pu.bcolors.OKBLUE}Current mode for grow-and-prune: {mode}{pu.bcolors.ENDC}')
 		iteration += 1
+
+		# Current list of model hash(es) being trained
+		latest_model_hashes = []
 
 		# Prune model based on configuration
 		if mode.startswith('prune'):
@@ -494,11 +497,15 @@ def main():
 			model_graph = graph_util.model_dict_to_graph(model_dict)
 			model_hash = graph_util.hash_graph(*model_graph, model_dict=model_dict)
 
+			# Update current list of model hash(es)
+			latest_model_hashes.append(model_hash)
+
 			# Add model to dataset
-			txf_dataset.add_node(model_hash=model_hash, mode=mode, loss=None, steps=None, parent_model_hash=best_hash)
+			print(f'Adding child node: {model_hash} of parent: {best_hash}, with mode: {mode}')
+			txf_dataset.add_node(model_hash=model_hash, mode=mode, loss=None, steps=None, params=None, parent_model_hash=best_hash)
 
 			# Train pruned model
-			print(f'Training pruned model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
+			# print(f'Training pruned model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
 			job_id = worker(args.models_dir, model_dict, model_hash, 
 				chosen_neighbor_hash=best_hash, steps=PRETRAIN_STEPS[mode], config=config, cluster=args.cluster, id=args.id)
 
@@ -526,17 +533,21 @@ def main():
 						layer = random.randint(0, model_dict['l']-1)
 					layers_done.append(layer)
 
-					model_dict['f'][layer].append(model_dict['f'][layer][-1])
+					model_dict['f'][layer].append(config['grow']['feed_forward_grow_dim'])
 
 				# Get the hash of the current model
 				model_graph = graph_util.model_dict_to_graph(model_dict)
 				model_hash = graph_util.hash_graph(*model_graph, model_dict=model_dict)
 
+				# Update current list of model hash(es)
+				latest_model_hashes.append(model_hash)
+
 				# Add model to dataset
-				txf_dataset.add_node(model_hash=model_hash, mode=mode, loss=None, steps=None, parent_model_hash=best_hash)
+				print(f'Adding child node: {model_hash} of parent: {best_hash}, with mode: {mode}')
+				txf_dataset.add_node(model_hash=model_hash, mode=mode, loss=None, steps=None, params=None, parent_model_hash=best_hash)
 
 				# Train sampled model
-				print(f'Training grown model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
+				# print(f'Training grown model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
 				job_id = worker(args.models_dir, model_dict, model_hash, 
 					chosen_neighbor_hash=best_hash, steps=PRETRAIN_STEPS[mode], config=config, cluster=args.cluster, id=args.id)
 
@@ -548,8 +559,8 @@ def main():
 		# Update best loss and hash
 		best_loss, best_hash = txf_dataset.update_dataset()
 
-		if best_hash != model_hash:
-			print(f'{pu.bcolors.WARNING}Latest model (with hash: {model_hash}) does not give the best loss (best model with hash: {best_hash}){pu.bcolors.ENDC}')
+		if best_hash not in latest_model_hashes:
+			print(f'{pu.bcolors.WARNING}Latest model (with hash(es): {latest_model_hashes}) does not give the best loss (best model with hash: {best_hash}){pu.bcolors.ENDC}')
 			if BACKTRACK:
 				print(f'{pu.bcolors.OKBLUE}Back-tracking...{pu.bcolors.ENDC}')
 				best_loss, best_hash = txf_dataset.get_next_best_model()
