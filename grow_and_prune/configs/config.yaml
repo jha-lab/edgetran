@@ -4,7 +4,10 @@
 
 grow:
   num_ops: 1
-  num_feed_forward_stacks: 1
+  feed_forward_grow_dim: 1024 
+
+num_grow_samples:
+  5
 
 prune:
   num_ops: 2
@@ -14,9 +17,6 @@ prune:
 
 model_transfer_mode:
   RP
-
-num_grow_samples:
-  5
 
 allowed_ops:
   - sa_sdp
