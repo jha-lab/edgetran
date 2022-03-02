@@ -77,9 +77,9 @@ class TxfDataset(object):
 
 		if parent is None:
 			tree.create_node(tag=model_hash, identifier=model_hash, data=TxfNode(**model_value['data']))
-			parent = tree.get_node(model_hash)
 		else:
 			tree.create_node(tag=model_hash, identifier=model_hash, parent=parent, data=TxfNode(**model_value['data']))
+		parent = tree.get_node(model_hash)
 
 		for child in tree_dict[model_hash].get('children', []):  
 			self._load_tree(tree, child, parent)
@@ -142,7 +142,8 @@ class TxfDataset(object):
 		"""
 		best_loss, best_hash = np.inf, ''
 		for model_hash in os.listdir(self.models_dir):
-			if not os.path.exists(os.path.join(self.models_dir, model_hash, 'log_history.json')): 
+			if not os.path.exists(os.path.join(self.models_dir, model_hash, 'log_history.json')) or \
+				model_hash not in self.dataset.nodes.keys(): 
 				continue
 
 			log_history = json.load(open(os.path.join(self.models_dir, model_hash, 'log_history.json'), 'r'))
@@ -173,7 +174,8 @@ class TxfDataset(object):
 
 		hash_losses = []
 		for model_hash in os.listdir(models_dir):
-			if not os.path.exists(os.path.join(self.models_dir, model_hash, 'log_history.json')): 
+			if not os.path.exists(os.path.join(self.models_dir, model_hash, 'log_history.json')) or \
+				model_hash not in self.dataset.nodes.keys(): 
 				continue
 
 			log_history = json.load(open(os.path.join(self.models_dir, model_hash, 'log_history.json'), 'r'))
