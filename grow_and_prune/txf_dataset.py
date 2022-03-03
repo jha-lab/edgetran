@@ -15,12 +15,17 @@ from treelib import Tree, Node
 
 from utils import print_util as pu
 
+from transformers import BertModel
+from transformers import RobertaTokenizer, RobertaModel
+from transformers.models.bert.configuration_bert import BertConfig
+from transformers.models.bert.modeling_modular_bert import BertModelModular, BertForMaskedLMModular
+
 
 MODES = ['grow_attn_head', 'grow_ffnn', 'prune_attn_head', 'prune_ffnn', 'prune_encoder_layer']
 
 
 class TxfNode(object):
-	def __init__(self, model_hash: str, mode: str, loss=None, steps=None):
+	def __init__(self, model_hash: str, mode: str, loss=None, steps=None, params=None):
 		"""Node corresponding to every transformer in the dataset
 		
 		Args:
@@ -28,6 +33,7 @@ class TxfNode(object):
 			mode (str): mode of change from parent, None if root
 			loss (float, optional): lowest value in losses
 			steps (int, optional): number of steps the model is trained
+			params (int, optional): number of parameters in the model
 		"""
 		if mode is not None:
 			assert mode in MODES, f'Mode should be in {MODES}'
@@ -37,6 +43,8 @@ class TxfNode(object):
 		self.mode = mode
 		self.loss = loss
 		self.steps = steps
+		self.params = params
+		self.params_human_format = ''
 
 	def __repr__(self):
 		return str(self.__dict__)
@@ -116,7 +124,7 @@ class TxfDataset(object):
 		"""
 		return eval(str(self.dataset.to_dict(with_data=with_data)))
 
-	def add_node(self, model_hash: str, mode: str, loss=None, steps=None, parent_model_hash=None):
+	def add_node(self, model_hash: str, mode: str, loss=None, steps=None, params=None, parent_model_hash=None):
 		"""Add a TxfNode object to the current graph
 		
 		Args:
@@ -124,12 +132,13 @@ class TxfDataset(object):
 			mode (str): mode of change from parent, None if root
 		    loss (float, optional): lowest value in losses
 		    steps (int, optional): number of steps the model is trained
+		    params (int, optional): number of parameters in the model
 		    parent_model_hash (str, optional): hash of the parent model
 		"""
 		self.dataset.create_node(tag=model_hash, 
 			identifier=model_hash, 
 			parent=self.dataset.get_node(parent_model_hash) if parent_model_hash is not None else None, 
-			data=TxfNode(model_hash, mode, loss, steps))
+			data=TxfNode(model_hash, mode, loss, steps, params))
 
 	def update_dataset(self, save_dataset=True):
 		"""Update the dataset based on trained models in models_dir
@@ -150,8 +159,18 @@ class TxfDataset(object):
 			losses = [state['loss'] for state in log_history[:-1]]
 			steps = [state['step'] for state in log_history[:-1]]
 			
-			self.dataset[model_hash].data.loss = min(losses)
+			# Saved loss is the mean of the last five
+			self.dataset[model_hash].data.loss = np.around(np.mean(losses[-5:]), decimals=4)
 			self.dataset[model_hash].data.steps = steps[-1]
+
+			# Get model parameters
+			model_dict = json.load(open(os.path.join(self.models_dir, model_hash, 'model_dict.json'), 'r'))
+			tokenizer = RobertaTokenizer.from_pretrained('../txf_design-space/roberta_tokenizer/')
+			config_new = BertConfig(vocab_size = tokenizer.vocab_size)
+			config_new.from_model_dict_hetero(model_dict)
+			model = BertModelModular(config_new)
+			self.dataset[model_hash].data.params = sum(param.numel() for param in model.parameters() if param.requires_grad)
+			self.dataset[model_hash].data.params_human_format = pu.human_format(self.dataset[model_hash].data.params, precision=4)
 
 			if self.dataset[model_hash].data.loss < best_loss:
 				best_loss = self.dataset[model_hash].data.loss
