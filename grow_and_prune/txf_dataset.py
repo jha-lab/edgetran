@@ -25,7 +25,7 @@ MODES = ['grow_attn_head', 'grow_ffnn', 'prune_attn_head', 'prune_ffnn', 'prune_
 
 
 class TxfNode(object):
-	def __init__(self, model_hash: str, mode: str, loss=None, steps=None, params=None):
+	def __init__(self, model_hash: str, mode: str, loss=None, steps=None, params=None, params_human_format=None):
 		"""Node corresponding to every transformer in the dataset
 		
 		Args:
@@ -34,6 +34,7 @@ class TxfNode(object):
 			loss (float, optional): lowest value in losses
 			steps (int, optional): number of steps the model is trained
 			params (int, optional): number of parameters in the model
+			params_human_format (str, optional): number of parameters in human format
 		"""
 		if mode is not None:
 			assert mode in MODES, f'Mode should be in {MODES}'
