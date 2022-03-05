@@ -54,7 +54,7 @@ from transformers import (
 
 
 BERT_BASE_HASH = '8b20da51c159887b310cabce176da7fb'
-BERT_BASE_LOSS = 1.322 
+BERT_BASE_LOSS = 1.3242
 BERT_BASE_STEPS = 100000
 
 CKPT_PATH = '' # Path to the grow-and-prune checkpoint
@@ -533,7 +533,13 @@ def main():
 						layer = random.randint(0, model_dict['l']-1)
 					layers_done.append(layer)
 
-					model_dict['f'][layer].append(config['grow']['feed_forward_grow_dim'])
+					if model_dict['f'][layer][-1] <= config['grow']['feed_forward_grow_dim']:
+						# Grow feed-forward stack only if number of neurons in the hidden layer is less than a limit
+						model_dict['f'][layer].append(model_dict['f'][layer][-1])
+					else:
+						print(f"Model with hash: {best_hash} has {model_dict['f'][layer][-1]} hidden neurons in encoder layer: {layer},")
+						print(f"which is larger than {config['grow']['feed_forward_grow_dim']}. Not growing feed-forward stack.")
+						continue
 
 				# Get the hash of the current model
 				model_graph = graph_util.model_dict_to_graph(model_dict)
@@ -559,8 +565,8 @@ def main():
 		# Update best loss and hash
 		best_loss, best_hash = txf_dataset.update_dataset()
 
-		if best_hash not in latest_model_hashes:
-			print(f'{pu.bcolors.WARNING}Latest model (with hash(es): {latest_model_hashes}) does not give the best loss (best model with hash: {best_hash}){pu.bcolors.ENDC}')
+		if len(latest_model_hashes) > 0 and best_hash not in latest_model_hashes:
+			print(f'{pu.bcolors.WARNING}Latest model(s) (with hash(es)): {latest_model_hashes}) do(es) not give the best loss (best model with hash: {best_hash}){pu.bcolors.ENDC}')
 			if BACKTRACK:
 				print(f'{pu.bcolors.OKBLUE}Back-tracking...{pu.bcolors.ENDC}')
 				best_loss, best_hash = txf_dataset.get_next_best_model()
@@ -577,9 +583,9 @@ def main():
 				# Implement soft reduction in loss, should continue till next grow mode even if loss not decreased
 				print(f'{pu.bcolors.OKBLUE}Latest model was pruned. Continuing till next grow mode...{pu.bcolors.ENDC}')
 			else:
-				raise RuntimeError(f'Latest model (with hash: {model_hash}) does not give the best loss (best model with hash: {best_hash})')
+				raise RuntimeError(f'Latest model(s) (with hash(es)): {latest_model_hashes}) do(es) not give the best loss (best model with hash: {best_hash})')
 		else:
-			print(f'{pu.bcolors.OKGREEN}Latest model (with hash: {model_hash}) gives the best loss. Continuing grow-and-prune...{pu.bcolors.ENDC}')
+			print(f'{pu.bcolors.OKGREEN}Latest model (with hash: {best_hash}) gives the best loss. Continuing grow-and-prune...{pu.bcolors.ENDC}')
 
 		best_model_dict = txf_dataset.get_model_dict(best_hash)
 
