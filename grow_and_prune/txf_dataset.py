@@ -249,6 +249,10 @@ class TxfDataset(object):
 		"""Get mode  of the given model"""
 		return self.dataset.get_node(model_hash).data.mode
 
+	def get_loss(self, model_hash: str):
+		"""Get loss of the given model"""
+		return self.dataset.get_node(model_hash).data.loss
+
 	def is_root(self, model_hash: str):
 		"""Check if model is root"""
 		return model_hash == self.dataset.root
