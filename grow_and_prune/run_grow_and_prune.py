@@ -141,8 +141,8 @@ def worker(models_dir: str,
 		shutil.rmtree(model_path)
 	shutil.copytree(os.path.join(chosen_neighbor_path), os.path.join(model_path))
 	try:
+		os.remove(os.path.join(model_path, checkpoint_dir, 'scheduler.pt'))
 		os.remove(os.path.join(model_path, checkpoint_dir, 'optimizer.pt'))
-		# os.remove(os.path.join(model_path, checkpoint_dir, 'scheduler.pt'))
 	except:
 		pass
 	model.save_pretrained(os.path.join(model_path, checkpoint_dir))
@@ -581,6 +581,8 @@ def main():
 				print(f'Running mode {MODES[iteration]} on the next best unexplored hash: {best_hash}')
 			elif mode.startswith('prune'):
 				# Implement soft reduction in loss, should continue till next grow mode even if loss not decreased
+				assert len(latest_model_hashes) == 1, 'The number of latest models being trained should be equal to 1'
+				best_loss, best_hash = txf_dataset.get_loss(latest_model_hashes[0]), latest_model_hashes[0]
 				print(f'{pu.bcolors.OKBLUE}Latest model was pruned. Continuing till next grow mode...{pu.bcolors.ENDC}')
 			else:
 				raise RuntimeError(f'Latest model(s) (with hash(es)): {latest_model_hashes}) do(es) not give the best loss (best model with hash: {best_hash})')
