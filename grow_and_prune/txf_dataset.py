@@ -141,16 +141,28 @@ class TxfDataset(object):
 			parent=self.dataset.get_node(parent_model_hash) if parent_model_hash is not None else None, 
 			data=TxfNode(model_hash, mode, loss, steps, params))
 
-	def update_dataset(self, save_dataset=True):
+	def update_dataset(self, save_dataset=True, remove_nodes=True):
 		"""Update the dataset based on trained models in models_dir
 		
 		Args:
 		    save_dataset (bool, optional): save dataset after update
+		    remove_nodes (bool, optional): remove nodes that are no longer in the models_dir
 		
 		Returns:
 		    float, str: best loss and hash
 		"""
 		best_loss, best_hash = np.inf, ''
+
+		# Remove models that are not found in the models drectory
+		all_hashes = [node.data.model_hash for node in self.dataset.all_nodes()]
+		for model_hash in all_hashes:
+			if model_hash not in os.listdir(self.models_dir):
+				try:
+					self.dataset.remove_node(model_hash)
+				except:
+					pass
+
+		# Update dataset
 		for model_hash in os.listdir(self.models_dir):
 			if not os.path.exists(os.path.join(self.models_dir, model_hash, 'log_history.json')) or \
 				model_hash not in self.dataset.nodes.keys(): 
