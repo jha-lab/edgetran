@@ -9,6 +9,7 @@ id="stuli"
 model_dir=""
 model_hash=""
 steps=""
+learning_rate=""
 partition="gpu"
 
 YELLOW='\033[0;33m'
@@ -29,6 +30,7 @@ Help()
    echo -e "${YELLOW}-d${ENDC} | ${YELLOW}--model_dir${ENDC} [default = ${GREEN}\"\"${ENDC}] \t\t Directory of the FlexiBERT model"
    echo -e "${YELLOW}-m${ENDC} | ${YELLOW}--model_hash${ENDC} [default = ${GREEN}\"\"${ENDC}] \t\t Hash of the FlexiBERT model"
    echo -e "${YELLOW}-s${ENDC} | ${YELLOW}--steps${ENDC} [default = ${GREEN}\"\"${ENDC}] \t\t Number of steps for pre-training"
+   echo -e "${YELLOW}-l${ENDC} | ${YELLOW}--learning_rate${ENDC} [default = ${GREEN}\"\"${ENDC}] \t\t Learning rate for pre-training"
    echo -e "${YELLOW}-h${ENDC} | ${YELLOW}--help${ENDC} \t\t\t\t\t Call this help message"
    echo
 }
@@ -64,6 +66,11 @@ case "$1" in
     -s | --steps)
         shift
         steps=$1
+        shift
+        ;;
+    -l | --learning_rate)
+        shift
+        learning_rate=$1
         shift
         ;;
     -h| --help)
@@ -138,7 +145,7 @@ echo "do" >> $job_file
 echo -e "\tssh \${node_list_arr[\${i}]} \"conda activate txf_design-space; \\" >> $job_file
 echo -e "\t\tcd /scratch/gpfs/stuli/edge_txf/grow_and_prune/; \\" >> $job_file
 echo -e "\t\tpython -m torch.distributed.launch --nproc_per_node=2 --nnodes=2 --node_rank=\${i} \\" >> $job_file
-echo -e "\t\t--master_addr=\${master_addr} --master_port=12345 pretrain_model.py --output_dir ${model_dir} --steps ${steps} --local_rank \${i}\" &" >> $job_file
+echo -e "\t\t--master_addr=\${master_addr} --master_port=12345 pretrain_model.py --output_dir ${model_dir} --steps ${steps} --learning_rate ${learning_rate} --local_rank \${i}\" &" >> $job_file
 echo "done" >> $job_file
 echo "" >> $job_file
 
