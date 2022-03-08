@@ -68,6 +68,11 @@ PRETRAIN_STEPS = {'grow_attn_head': 20000,
 				  'prune_attn_head': 30000, # High no. of steps, assuming encoder layer is also pruned
 				  'prune_ffnn': 20000,
 				  'prune_encoder_layer': 15000} # Steps to pre-train beyond the latest checkpoint
+PRETRAIN_LRS = {'grow_attn_head': 1e-5,
+				'grow_ffnn': 1e-5,
+				'prune_attn_head': 5e-5,
+				'prune_ffnn': 1e-5,
+				'prune_encoder_layer': 5e-5}
 
 GROW_FIRST = True # If False, model is pruned first
 GROW_FFNN = True # If False, feed-forward stack not grown
@@ -89,6 +94,7 @@ def worker(models_dir: str,
 	model_hash: str,
 	chosen_neighbor_hash: str,
 	steps: int,
+	learning_rate: float,
 	config: dict,
 	cluster: str,
 	id: str):
@@ -101,6 +107,7 @@ def worker(models_dir: str,
 		model_hash (str): hash of the given model
 		chosen_neighbor_hash (str): hash of the chosen neighbor
 		steps (int): number of steps for pre-training
+		learning_rate (float): learning rate for pre-training
 		config (dict): configuration for grow-and-prune
 		cluster (str): name of the cluster - "adroit", "tiger" or "della"
 		id (str): PU-NetID that is used to run slurm commands
@@ -164,6 +171,7 @@ def worker(models_dir: str,
 	args.extend(['--model_hash', model_hash])
 	args.extend(['--model_dir', model_path])
 	args.extend(['--steps', str(steps)])
+	args.extend(['--learning_rate', str(learning_rate)])
 	
 	slurm_stdout = subprocess.check_output(
 		f'ssh della-gpu "cd /scratch/gpfs/stuli/edge_txf/grow_and_prune; source ./job_scripts/job_worker.sh {" ".join(args)}"',
@@ -507,7 +515,7 @@ def main():
 			# Train pruned model
 			# print(f'Training pruned model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
 			job_id = worker(args.models_dir, model_dict, model_hash, 
-				chosen_neighbor_hash=best_hash, steps=PRETRAIN_STEPS[mode], config=config, cluster=args.cluster, id=args.id)
+				chosen_neighbor_hash=best_hash, steps=PRETRAIN_STEPS[mode], learning_rate=PRETRAIN_LRS[mode], config=config, cluster=args.cluster, id=args.id)
 
 			model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
@@ -555,7 +563,7 @@ def main():
 				# Train sampled model
 				# print(f'Training grown model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
 				job_id = worker(args.models_dir, model_dict, model_hash, 
-					chosen_neighbor_hash=best_hash, steps=PRETRAIN_STEPS[mode], config=config, cluster=args.cluster, id=args.id)
+					chosen_neighbor_hash=best_hash, steps=PRETRAIN_STEPS[mode], learning_rate=PRETRAIN_LRS[mode], config=config, cluster=args.cluster, id=args.id)
 
 				model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
