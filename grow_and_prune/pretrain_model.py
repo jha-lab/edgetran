@@ -99,7 +99,7 @@ if __name__ == '__main__':
 		help='number of steps to pre-train beyond latest checkpoint')
 	parser.add_argument('--learning_rate',
 		metavar='',
-		type=int,
+		type=float,
 		help='learning rate to set for training')
 	parser.add_argument('--local_rank',
 		metavar='',
