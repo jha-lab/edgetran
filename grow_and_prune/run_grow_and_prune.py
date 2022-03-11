@@ -444,8 +444,10 @@ def main():
 		latest_mode = txf_dataset.get_mode(best_hash)
 		iteration = MODES.index(latest_mode) + 1
 
+		child_best_hash = deepcopy(best_hash)
+
 		# If the best model has trained pruned children, start from there
-		while txf_dataset.has_children(best_hash):
+		while txf_dataset.has_children(child_best_hash):
 			children_list = txf_dataset.dataset.children(best_hash)
 			children_list.sort(key=lambda x:x.data.loss)
 
