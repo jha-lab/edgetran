@@ -446,10 +446,11 @@ def main():
 
 		# If the best model has trained pruned children, start from there
 		while txf_dataset.has_children(best_hash):
-			children_list = txf_dataset.dataset.children(best_hash).sort(key=lambda x:x.data.loss)
+			children_list = txf_dataset.dataset.children(best_hash)
+			children_list.sort(key=lambda x:x.data.loss)
 
 			# Select child with lowest loss
-			child_best_hash = children_list[0]
+			child_best_hash = children_list[0].data.model_hash
 
 		best_hash = child_best_hash
 		latest_mode = txf_dataset.get_mode(best_hash)
