@@ -444,6 +444,19 @@ def main():
 		latest_mode = txf_dataset.get_mode(best_hash)
 		iteration = MODES.index(latest_mode) + 1
 
+		# If the best model has trained pruned children, start from there
+		while txf_dataset.has_children(best_hash):
+			children_list = txf_dataset.dataset.children(best_hash).sort(key=lambda x:x.data.loss)
+
+			# Select child with lowest loss
+			child_best_hash = children_list[0]
+
+		best_hash = child_best_hash
+		latest_mode = txf_dataset.get_mode(best_hash)
+		iteration = MODES.index(latest_mode) + 1
+
+		print(f'Running grow-and-prune from model with hash: {best_hash}')
+
 	while same_performance < PERFORMANCE_PATIENCE:
 		# Get current mode for grow-and-prune
 		mode = MODES[iteration % len(MODES)]
