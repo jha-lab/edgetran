@@ -125,7 +125,7 @@ class TxfDataset(object):
 		"""
 		return eval(str(self.dataset.to_dict(with_data=with_data)))
 
-	def add_node(self, model_hash: str, mode: str, loss=None, steps=None, params=None, parent_model_hash=None):
+	def add_node(self, model_hash: str, mode: str, loss=None, steps=None, params=None, parent_model_hash=None, save_dataset=True):
 		"""Add a TxfNode object to the current graph
 		
 		Args:
@@ -135,11 +135,14 @@ class TxfDataset(object):
 		    steps (int, optional): number of steps the model is trained
 		    params (int, optional): number of parameters in the model
 		    parent_model_hash (str, optional): hash of the parent model
+		    save_dataset (bool, optional): save dataset after adding node
 		"""
 		self.dataset.create_node(tag=model_hash, 
 			identifier=model_hash, 
 			parent=self.dataset.get_node(parent_model_hash) if parent_model_hash is not None else None, 
 			data=TxfNode(model_hash, mode, loss, steps, params))
+
+		if save_dataset: self.save_dataset()
 
 	def update_dataset(self, save_dataset=True, remove_nodes=True):
 		"""Update the dataset based on trained models in models_dir
