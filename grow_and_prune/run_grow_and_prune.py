@@ -74,6 +74,8 @@ PRETRAIN_LRS = {'grow_attn_head': 1e-5,
 				'prune_ffnn': 1e-5,
 				'prune_encoder_layer': 5e-5}
 
+# TODO: Add these toggles to config.yaml
+GROW_ONLY = False # If True, only growth is performed
 GROW_FIRST = True # If False, model is pruned first
 GROW_FFNN = True # If False, feed-forward stack not grown
 PRUNE_FFNN = True # If False, feed-forward layers not pruned
@@ -85,7 +87,9 @@ BACKTRACK = False # If True, runs back-tracking
 
 if PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
 	MODES = MODES[:-1]
-if not GROW_FIRST:
+if GROW_ONLY:
+	MODES = MODES[:2]
+elif not GROW_FIRST:
 	MODES = MODES[2:] + MODES[0:2]
 
 
