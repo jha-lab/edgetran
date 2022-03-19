@@ -143,7 +143,7 @@ echo "" >> $job_file
 echo "for i in {0..1}" >> $job_file
 echo "do" >> $job_file
 echo -e "\tssh \${node_list_arr[\${i}]} \"conda activate txf_design-space; \\" >> $job_file
-echo -e "\t\tcd /scratch/gpfs/stuli/edge_txf/grow_and_prune/; \\" >> $job_file
+echo -e "\t\tcd /scratch/gpfs/${id}/edge_txf/grow_and_prune/; \\" >> $job_file
 echo -e "\t\tpython -m torch.distributed.launch --nproc_per_node=2 --nnodes=2 --node_rank=\${i} \\" >> $job_file
 echo -e "\t\t--master_addr=\${master_addr} --master_port=12345 pretrain_model.py --output_dir ${model_dir} --steps ${steps} --learning_rate ${learning_rate} --local_rank \${i}\" &" >> $job_file
 echo "done" >> $job_file
