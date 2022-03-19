@@ -35,7 +35,6 @@ def _get_training_args(seed, max_steps, learning_rate, per_gpu_batch_size, outpu
     --do_train \
     --max_seq_length 512 \
     --per_gpu_train_batch_size {} \
-    --gradient_accumulation_steps 4 \
     --max_steps {} \
     --adam_epsilon 1e-6 \
     --adam_beta2 0.98 \
@@ -44,6 +43,7 @@ def _get_training_args(seed, max_steps, learning_rate, per_gpu_batch_size, outpu
     --save_total_limit 2 \
     --warmup_steps 10000 \
     --lr_scheduler_type linear \
+    --overwrite_output_dir \
     --output_dir {} \
     --local_rank {} \
         ".format(seed, per_gpu_batch_size, max_steps, learning_rate, output_dir, local_rank)
@@ -61,10 +61,13 @@ def main(args):
 			for path in content
 			if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(args.output_dir, path))
 		]
-	assert len(checkpoints) > 0, f'No checkpoint found to continue pre-training in the output directory: {args.output_dir}'
-	checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
+	if len(checkpoints) > 0:
+		print(f'No checkpoint found to continue pre-training in the output directory: {args.output_dir}')
+		checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
+		curr_steps = int(checkpoint_dir.split('-')[1])
+	else:
+		curr_steps = 0
 
-	curr_steps = int(checkpoint_dir.split('-')[1])
 	max_steps = curr_steps + args.steps
 
 	seed = 0
