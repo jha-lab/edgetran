@@ -28,7 +28,7 @@ import tabulate
 import subprocess
 import time
 
-from txf_dataset import TxfDataset, MODES
+from txf_dataset import TxfDataset
 
 from utils import graph_util
 from utils import print_util as pu
@@ -57,7 +57,10 @@ BERT_BASE_HASH = '8b20da51c159887b310cabce176da7fb'
 BERT_BASE_LOSS = 1.3242
 BERT_BASE_STEPS = 100000
 
-CKPT_PATH = '' # Path to the grow-and-prune checkpoint
+BERT_MINI_HASH = '40f62e468f3458f8d4a5b49ba1413ce6'
+BERT_MINI_LOSS = 2.2 # TODO: Update this once BERT-Mini is trained
+BERT_MINI_STEPS = 1000000
+
 PREFIX_CHECKPOINT_DIR = "checkpoint"
 
 USE_GPU_EE = True # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
@@ -74,23 +77,10 @@ PRETRAIN_LRS = {'grow_attn_head': 1e-5,
 				'prune_ffnn': 1e-5,
 				'prune_encoder_layer': 5e-5}
 
-# TODO: Add these toggles to config.yaml
-GROW_ONLY = False # If True, only growth is performed
-GROW_FIRST = True # If False, model is pruned first
-GROW_FFNN = True # If False, feed-forward stack not grown
-PRUNE_FFNN = True # If False, feed-forward layers not pruned
-PRUNE_ENCODER_LAYER = False # If False, encoder hidden dimensions not pruned
 PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD = True # If False, encoder hidden dimensions not pruned when attention heads are pruned
 
-RUN_ONE_ITN_FROM_BERT_BASE = False # If True, runs one iteration of grow-and-prune from BERT-Base
+RUN_ONE_ITN_FROM_BERT = False # If True, runs one iteration of grow-and-prune from BERT-Base or BERT-Mini
 BACKTRACK = False # If True, runs back-tracking
-
-if PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
-	MODES = MODES[:-1]
-if GROW_ONLY:
-	MODES = MODES[:2]
-elif not GROW_FIRST:
-	MODES = MODES[2:] + MODES[0:2]
 
 
 def worker(models_dir: str,
@@ -383,17 +373,17 @@ def main():
 		metavar='',
 		type=str,
 		help='path to the grow-and-prune configuration file',
-		default='./configs/config.yaml')
+		default='./configs/config_grow_only.yaml')
 	parser.add_argument('--txf_dataset_file',
 		metavar='',
 		type=str,
 		help='path to the transformer dataset file',
-		default='./dataset/dataset_base.json')
+		default='./dataset/dataset_mini.json')
 	parser.add_argument('--models_dir',
 		metavar='',
 		type=str,
 		help='path to the directory where all models are trained',
-		default='../models')
+		default='../models/bert_mini')
 	parser.add_argument('--n_jobs',
 		metavar='',
 		type=int,
@@ -417,23 +407,38 @@ def main():
 	# Load configurations for grow-and-prune
 	config = yaml.safe_load(open(args.config_file))
 
-	# Start with BERT-Base
-	best_loss = BERT_BASE_LOSS
-	best_hash = BERT_BASE_HASH
+	if PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
+		assert 'prune_encoder_layer' not in config['modes']
+
+	# Start with BERT-Base or BERT-Mini
+	base_model = ''
+	if BERT_BASE_HASH in os.listdir(args.models_dir):
+		best_loss = BERT_BASE_LOSS
+		best_hash = BERT_BASE_HASH
+		base_model = 'bert_base'
+	elif BERT_MINI_HASH in os.listdir(args.models_dir):
+		best_loss = BERT_MINI_LOSS
+		best_hash = BERT_MINI_HASH
+		base_model = 'bert_mini'
+	else:
+		raise RuntimeError(f'BERT hash: {BERT_BASE_HASH} or {BERT_MINI_HASH} not found in {args.models_dir}')
 
 	# Set and load transformer dataset
 	txf_dataset = TxfDataset(args.txf_dataset_file, args.models_dir, debug=True)
 	if not os.path.exists(args.txf_dataset_file):
-		txf_dataset.add_node(model_hash=best_hash, mode=None, loss=best_loss, params=None, steps=BERT_BASE_STEPS, parent_model_hash=None)
+		txf_dataset.add_node(model_hash=best_hash, 
+			mode=None, 
+			loss=best_loss, 
+			params=None, 
+			steps=BERT_BASE_STEPS if base_model == 'bert_base' else BERT_MINI_STEPS, 
+			parent_model_hash=None)
 
 	# Show the current dataset
 	print(f'Current tree dataset:')
 	txf_dataset.show_dataset()
 
-	# If this script is run for one iteration, the best model is assumed to be BERT-Base
-	if RUN_ONE_ITN_FROM_BERT_BASE:
-		best_loss, best_hash = BERT_BASE_LOSS, BERT_BASE_HASH
-	else:
+	# If this script is run for one iteration, the best model is assumed to be BERT-Base or BERT-Mini
+	if not RUN_ONE_ITN_FROM_BERT:
 		best_loss, best_hash = txf_dataset.update_dataset()
 	best_model_dict = txf_dataset.get_model_dict(best_hash)
 
@@ -444,9 +449,9 @@ def main():
 
 	same_performance, iteration = 0, 0
 
-	if best_hash != BERT_BASE_HASH:
+	if best_hash not in [BERT_BASE_HASH, BERT_MINI_HASH]:
 		latest_mode = txf_dataset.get_mode(best_hash)
-		iteration = MODES.index(latest_mode) + 1
+		iteration = config['modes'].index(latest_mode) + 1
 
 		child_best_hash = deepcopy(best_hash)
 
@@ -460,13 +465,13 @@ def main():
 
 		best_hash = child_best_hash
 		latest_mode = txf_dataset.get_mode(best_hash)
-		iteration = MODES.index(latest_mode) + 1
+		iteration = config['modes'].index(latest_mode) + 1
 
 		print(f'Running grow-and-prune from model with hash: {best_hash}')
 
 	while same_performance < PERFORMANCE_PATIENCE:
 		# Get current mode for grow-and-prune
-		mode = MODES[iteration % len(MODES)]
+		mode = config['modes'][iteration % len(config['modes'])]
 		print(f'{pu.bcolors.OKBLUE}Current mode for grow-and-prune: {mode}{pu.bcolors.ENDC}')
 		iteration += 1
 
@@ -502,13 +507,13 @@ def main():
 					# Remove attention head with lowest mean weight values
 					model_dict['o'][attention_weights[num_op]['layer']].pop(attention_weights[num_op]['attention_head'])
 
-			elif mode == 'prune_ffnn' and PRUNE_FFNN:
+			elif mode == 'prune_ffnn':
 				# Prune feed-forward layers
 				for num_ff_layer in range(config['prune']['num_feed_forward_layers']):
 					model_dict['f'][feed_forward_weights[num_ff_layer]['layer']][feed_forward_weights[num_ff_layer]['feed_forward_layer']] -= \
 						config['prune']['feed_forward_prune_dim']
 
-			elif mode == 'prune_encoder_layer' and PRUNE_ENCODER_LAYER and not PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
+			elif mode == 'prune_encoder_layer' and not PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD:
 				# Prune encoder layer
 				min_encoder_weight, min_encoder_idx = np.inf, 0
 				for i in range(model_dict['l']):
@@ -533,9 +538,8 @@ def main():
 			txf_dataset.add_node(model_hash=model_hash, mode=mode, loss=None, steps=None, params=None, parent_model_hash=best_hash)
 
 			# Train pruned model
-			# print(f'Training pruned model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
 			job_id = worker(args.models_dir, model_dict, model_hash, 
-				chosen_neighbor_hash=best_hash, steps=PRETRAIN_STEPS[mode], learning_rate=PRETRAIN_LRS[mode], config=config, cluster=args.cluster, id=args.id)
+				chosen_neighbor_hash=best_hash, steps=config['pretrain_steps'][mode], learning_rate=config['pretrain_lrs'][mode], config=config, cluster=args.cluster, id=args.id)
 
 			model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
@@ -554,7 +558,7 @@ def main():
 						layer_hidden_dim = model_dict['o'][layer][0].split('_')[2]
 						model_dict['o'][layer].append(op + '_' +  layer_hidden_dim)
 				
-				elif mode == 'grow_ffnn' and GROW_FFNN:
+				elif mode == 'grow_ffnn':
 					# Add a feed-forward stack
 					layer = random.randint(0, model_dict['l']-1)
 					while layer in layers_done:
@@ -583,7 +587,7 @@ def main():
 				# Train sampled model
 				# print(f'Training grown model wih dictionary:\n\t{model_dict}\nand hash:\n\t{model_hash}')
 				job_id = worker(args.models_dir, model_dict, model_hash, 
-					chosen_neighbor_hash=best_hash, steps=PRETRAIN_STEPS[mode], learning_rate=PRETRAIN_LRS[mode], config=config, cluster=args.cluster, id=args.id)
+					chosen_neighbor_hash=best_hash, steps=config['pretrain_steps'][mode], learning_rate=config['pretrain_lrs'][mode], config=config, cluster=args.cluster, id=args.id)
 
 				model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
@@ -601,12 +605,12 @@ def main():
 				while not (txf_dataset.is_root(best_hash) or (txf_dataset.get_mode(best_hash).startswith('grow') and not txf_dataset.has_children(best_hash))):
 					best_loss, best_hash = txf_dataset.get_next_best_model()
 				if txf_dataset.is_root(best_hash): 
-					# If we are at the root node, we need to start again (either grow, or if GROW_FIRST is False, prune)
+					# If we are at the root node, we need to start again
 					iteration = 0
 				else:
 					# Go to next mode
-					iteraton = MODES.index(txf_dataset.get_mode(best_hash)) + 1
-				print(f'Running mode {MODES[iteration]} on the next best unexplored hash: {best_hash}')
+					iteraton = config['modes'].index(txf_dataset.get_mode(best_hash)) + 1
+				print(f'Running mode {config['modes'][iteration]} on the next best unexplored hash: {best_hash}')
 			elif mode.startswith('prune'):
 				# Implement soft reduction in loss, should continue till next grow mode even if loss not decreased
 				assert len(latest_model_hashes) == 1, 'The number of latest models being trained should be equal to 1'
@@ -628,7 +632,7 @@ def main():
 			same_performance += 1
 		old_best_loss = best_loss
 
-		if RUN_ONE_ITN_FROM_BERT_BASE:
+		if RUN_ONE_ITN_FROM_BERT:
 			break
 
 	print(f'{pu.bcolors.OKGREEN}Convergence criterion reached!{pu.bcolors.ENDC}')
