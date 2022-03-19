@@ -1,0 +1,53 @@
+# Configurations for Grow-and-Prune
+
+# Author : Shikhar Tuli
+
+
+# Grow configuration parameters
+grow:
+  num_ops: 1
+  feed_forward_grow_dim: 1024 
+  num_samples: 5
+
+# Prune configuration parameters
+prune:
+  num_ops: 2
+  num_feed_forward_layers: 2
+  feed_forward_prune_dim: 128
+  hidden_prune_dim: 48
+
+# Allowed modes for grow-and-prune (ordered and subset of MODES in txf_dataset.py)
+modes:
+  - grow_attn_head
+  - grow_ffnn
+
+# Weight transfer method (in 'RP' or 'OD')
+model_transfer_mode:
+  RP
+
+# Allowed operations in the FlexiBERT design space
+allowed_ops:
+  - sa_sdp
+  - sa_wma 
+  - l_dft
+  - l_dct
+  - c_5
+  - c_9
+  - c_13
+
+# Steps to pre-train beyond the latest checkpoint for each mode
+pretrain_steps:
+  grow_attn_head: 20000
+  grow_ffnn: 20000
+  prune_attn_head: 30000 # High no. of steps, assuming encoder layer is also pruned
+  prune_ffnn: 20000
+  prune_encoder_layer: 15000
+
+# Learning rate to use for each mode
+pretrain_lrs:
+  grow_attn_head: 1.e-5
+  grow_ffnn: 1.e-5
+  prune_attn_head: 5.e-5
+  prune_ffnn: 1.e-5
+  prune_encoder_layer: 5.e-5
+
