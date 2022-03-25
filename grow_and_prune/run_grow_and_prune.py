@@ -58,7 +58,7 @@ BERT_BASE_LOSS = 1.3242
 BERT_BASE_STEPS = 100000
 
 BERT_MINI_HASH = '40f62e468f3458f8d4a5b49ba1413ce6'
-BERT_MINI_LOSS = 2.2 # TODO: Update this once BERT-Mini is trained
+BERT_MINI_LOSS = 2.3784 
 BERT_MINI_STEPS = 1000000
 
 PREFIX_CHECKPOINT_DIR = "checkpoint"
@@ -546,7 +546,7 @@ def main():
 		# Grow model based on configuration
 		elif mode.startswith('grow'):
 			layers_done = []
-			for i in range(config['num_grow_samples']):
+			for i in range(config['grow']['num_samples']):
 				model_dict = deepcopy(best_model_dict)
 
 				if mode == 'grow_attn_head':
@@ -610,7 +610,7 @@ def main():
 				else:
 					# Go to next mode
 					iteraton = config['modes'].index(txf_dataset.get_mode(best_hash)) + 1
-				print(f'Running mode {config['modes'][iteration]} on the next best unexplored hash: {best_hash}')
+				print(f'Running mode {config["modes"][iteration]} on the next best unexplored hash: {best_hash}')
 			elif mode.startswith('prune'):
 				# Implement soft reduction in loss, should continue till next grow mode even if loss not decreased
 				assert len(latest_model_hashes) == 1, 'The number of latest models being trained should be equal to 1'
