@@ -30,20 +30,20 @@ PREFIX_CHECKPOINT_DIR = "checkpoint"
 
 
 def _get_training_args(seed, max_steps, learning_rate, per_gpu_batch_size, output_dir, local_rank):
-	# warmup_steps needs to be changed back to 1000
+	# warmup_steps needs to be changed to 10,000 and overwrite_output_dir needs to be added for manual pre-training
     a = "--seed {} \
     --do_train \
     --max_seq_length 512 \
     --per_gpu_train_batch_size {} \
     --max_steps {} \
     --adam_epsilon 1e-6 \
-    --adam_beta2 0.98 \
+    --adam_beta2 0.99 \
     --learning_rate {} \
     --weight_decay 0.01 \
     --save_total_limit 2 \
-    --warmup_steps 10000 \
+    --warmup_steps 1000 \
     --lr_scheduler_type linear \
-    --overwrite_output_dir \
+    --gradient_accumulation_steps 2 \
     --output_dir {} \
     --local_rank {} \
         ".format(seed, per_gpu_batch_size, max_steps, learning_rate, output_dir, local_rank)
@@ -71,7 +71,7 @@ def main(args):
 	max_steps = curr_steps + args.steps
 
 	seed = 0
-	training_args = _get_training_args(seed, max_steps, args.learning_rate, 64, args.output_dir, args.local_rank)
+	training_args = _get_training_args(seed, max_steps, args.learning_rate, 32, args.output_dir, args.local_rank)
 
 	# Get model dictionary from output directory
 	model_dict = json.load(open(os.path.join(args.output_dir, 'model_dict.json'), 'r'))
