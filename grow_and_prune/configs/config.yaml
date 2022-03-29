@@ -6,8 +6,9 @@
 # Grow configuration parameters
 grow:
   num_ops: 1
-  feed_forward_grow_dim: 1024 
-  num_samples: 5
+  feed_forward_grow_dim: 
+    - 1024 
+  num_samples: 5 # Make sure that num_samples < min[(layers * len(feed_forward_grow_dim)), layers * len(allowed_ops)] 
 
 # Prune configuration parameters
 prune:
