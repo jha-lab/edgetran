@@ -67,7 +67,7 @@ USE_GPU_EE = True # Use GPU-EE partition on della cluster (False, True, or 'ONLY
 
 PERFORMANCE_PATIENCE = 5
 PRETRAIN_STEPS = {'grow_attn_head': 20000,
-				  'grow_ffnn': 20000,
+				  'grow_ffnn': 50000,
 				  'prune_attn_head': 30000, # High no. of steps, assuming encoder layer is also pruned
 				  'prune_ffnn': 20000,
 				  'prune_encoder_layer': 15000} # Steps to pre-train beyond the latest checkpoint
@@ -554,6 +554,10 @@ def main():
 					for num_op in range(config['grow']['num_ops']):
 						layer = random.randint(0, model_dict['l']-1)
 						op = random.sample(config['allowed_ops'], 1)[0]
+						while str(layer) + '_' + str(op) in layers_done:
+							layer = random.randint(0, model_dict['l']-1)
+							op = random.sample(config['allowed_ops'], 1)[0]
+						layers_done.append(str(layer) + '_' + str(op))
 						
 						layer_hidden_dim = model_dict['o'][layer][0].split('_')[2]
 						model_dict['o'][layer].append(op + '_' +  layer_hidden_dim)
@@ -561,16 +565,18 @@ def main():
 				elif mode == 'grow_ffnn':
 					# Add a feed-forward stack
 					layer = random.randint(0, model_dict['l']-1)
-					while layer in layers_done:
+					feed_forward_grow_dim = random.sample(config['grow']['feed_forward_grow_dim'])
+					while str(layer) + '_' + str(feed_forward_grow_dim) in layers_done:
 						layer = random.randint(0, model_dict['l']-1)
-					layers_done.append(layer)
+						feed_forward_grow_dim = random.sample(config['grow']['feed_forward_grow_dim'])
+					layers_done.append(str(layer) + '_' + str(feed_forward_grow_dim))
 
-					if model_dict['f'][layer][-1] <= config['grow']['feed_forward_grow_dim']:
+					if model_dict['f'][layer][-1] <= max(config['grow']['feed_forward_grow_dim']):
 						# Grow feed-forward stack only if number of neurons in the hidden layer is less than a limit
-						model_dict['f'][layer].append(model_dict['f'][layer][-1])
+						model_dict['f'][layer].append(feed_forward_grow_dim)
 					else:
 						print(f"Model with hash: {best_hash} has {model_dict['f'][layer][-1]} hidden neurons in encoder layer: {layer},")
-						print(f"which is larger than {config['grow']['feed_forward_grow_dim']}. Not growing feed-forward stack.")
+						print(f"which is larger than {max(config['grow']['feed_forward_grow_dim'])}. Not growing feed-forward stack.")
 						continue
 
 				# Get the hash of the current model
