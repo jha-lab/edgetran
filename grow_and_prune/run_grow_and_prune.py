@@ -565,10 +565,10 @@ def main():
 				elif mode == 'grow_ffnn':
 					# Add a feed-forward stack
 					layer = random.randint(0, model_dict['l']-1)
-					feed_forward_grow_dim = random.sample(config['grow']['feed_forward_grow_dim'])
+					feed_forward_grow_dim = random.sample(config['grow']['feed_forward_grow_dim'], 1)[0]
 					while str(layer) + '_' + str(feed_forward_grow_dim) in layers_done:
 						layer = random.randint(0, model_dict['l']-1)
-						feed_forward_grow_dim = random.sample(config['grow']['feed_forward_grow_dim'])
+						feed_forward_grow_dim = random.sample(config['grow']['feed_forward_grow_dim'], 1)[0]
 					layers_done.append(str(layer) + '_' + str(feed_forward_grow_dim))
 
 					if model_dict['f'][layer][-1] <= max(config['grow']['feed_forward_grow_dim']):
