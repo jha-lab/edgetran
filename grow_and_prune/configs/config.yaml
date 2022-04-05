@@ -41,7 +41,7 @@ allowed_ops:
 # Steps to pre-train beyond the latest checkpoint for each mode
 pretrain_steps:
   grow_attn_head: 20000
-  grow_ffnn: 20000
+  grow_ffnn: 50000
   prune_attn_head: 30000 # High no. of steps, assuming encoder layer is also pruned
   prune_ffnn: 20000
   prune_encoder_layer: 15000
