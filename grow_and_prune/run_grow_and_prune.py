@@ -66,16 +66,6 @@ PREFIX_CHECKPOINT_DIR = "checkpoint"
 USE_GPU_EE = True # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
 
 PERFORMANCE_PATIENCE = 5
-PRETRAIN_STEPS = {'grow_attn_head': 20000,
-				  'grow_ffnn': 50000,
-				  'prune_attn_head': 30000, # High no. of steps, assuming encoder layer is also pruned
-				  'prune_ffnn': 20000,
-				  'prune_encoder_layer': 15000} # Steps to pre-train beyond the latest checkpoint
-PRETRAIN_LRS = {'grow_attn_head': 1e-5,
-				'grow_ffnn': 1e-5,
-				'prune_attn_head': 5e-5,
-				'prune_ffnn': 1e-5,
-				'prune_encoder_layer': 5e-5}
 
 PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD = True # If False, encoder hidden dimensions not pruned when attention heads are pruned
 
