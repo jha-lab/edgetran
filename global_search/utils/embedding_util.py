@@ -165,3 +165,28 @@ def get_embedding_bounds(design_space: dict, type: str = 'all'):
     return bounds
 
 
+def is_valid_embedding(embedding: list, design_space: dict):
+    """Test if an embedding is valid or not
+    
+    Args:
+        embedding (list): embedding for the given model dictionary
+        design_space (dict): design space dictionary
+
+    Returns:
+        valid (bool): whether the embedding is valid or not
+    """
+
+    # All entries beyond embedding[0] layers should be zero
+    if np.count_nonzero(embedding[design_space['encoder_layers'][embedding[0]] * 3 + 1:]) > 0:
+        return False
+
+    # Test if an embedding can form a valid model dictionary, a model graph and is hashable
+    try:
+        model_dict = embedding_to_model_dict(embedding, design_space)
+        model_graph = graph_util.model_dict_to_graph(model_dict)
+        model_hash = graph_util.hash_graph(*model_graph, model_dict=model_dict)
+        return True
+    except:
+        return False
+
+
