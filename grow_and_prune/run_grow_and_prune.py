@@ -373,7 +373,7 @@ def main():
 		metavar='',
 		type=str,
 		help='path to the directory where all models are trained',
-		default='../models/bert_mini')
+		default='../models/grow_and_prune/bert_mini')
 	parser.add_argument('--n_jobs',
 		metavar='',
 		type=int,
