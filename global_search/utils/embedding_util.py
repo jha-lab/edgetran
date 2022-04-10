@@ -209,3 +209,25 @@ def get_nearest_valid_embedding(embedding: list, design_space: dict):
     return embedding
 
 
+def get_model_type(model_dict: dict, design_space: dict):
+    """Get the type of model among four broac categories
+    
+    Args:
+        model_dict (dict): model dictionary (based on new heterogeneous format)
+        design_space (dict): design space dictionary
+
+    Returns:
+        model_type (str): 
+    """
+
+    median_encoder_layers = design_space['encoder_layers'][len(design_space['encoder_layers'])//2]
+    median_num_heads = design_space['num_heads'][len(design_space['num_heads'])//2]
+
+    depth = model_dict['l']
+    max_num_heads = max([len(attn_ops) for attn_ops in model_dict['o']])
+
+    model_type = 'shallow_' if depth < median_encoder_layers else 'deep_'
+    model_type += 'narrow' if max_num_heads < median_num_heads else 'wide'
+
+    return model_type
+
