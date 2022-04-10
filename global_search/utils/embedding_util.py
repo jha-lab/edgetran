@@ -9,6 +9,35 @@ import itertools
 import numpy as np
 
 
+def _get_possible_ops(design_space: dict):
+    """Get possible operations
+    
+    Args:
+        design_space (dict): design space dictionary
+
+    Returns:
+        feed_forward_ops (list), attention_ops (list): possible operations
+    """
+
+    # Get possible feed-forward operations
+    feed_forward_ops = []
+    for num_stacks in design_space['number_of_feed-forward_stacks']:
+        feed_forward_ops.extend([list(tup) for tup in itertools.combinations_with_replacement(design_space['feed-forward_hidden'], num_stacks)])
+
+    # Get possible attention types
+    attention_types = []
+    for op_type in design_space['operation_types']:
+        for op_param in design_space['operation_parameters'][op_type]:
+            attention_types.append(op_type + '_' + str(op_param))
+
+    # Get possible attention operations
+    attention_ops = []
+    for num_heads in design_space['num_heads']:
+        attention_ops.extend([list(tup) for tup in itertools.combinations_with_replacement(attention_types, num_heads)])
+
+    return feed_forward_ops, attention_ops
+
+
 def model_dict_to_embedding(model_dict: dict, design_space: dict):
     """Convert a model dictionary to corresponding embedding
     
@@ -24,19 +53,10 @@ def model_dict_to_embedding(model_dict: dict, design_space: dict):
     embedding_length = 1 + max(design_space['encoder_layers']) \
         * (1 # for hidden dimension
             + 1 # for feed-forward stack 
-            + max(design_space['num_heads']) # for each attention head 
+            + 1 # for attention operations 
            )
 
-    # Get possible feed-forward operations
-    feed_forward_ops = []
-    for num_stacks in design_space['number_of_feed-forward_stacks']:
-        feed_forward_ops.extend([list(tup) for tup in itertools.combinations_with_replacement(design_space['feed-forward_hidden'], num_stacks)])
-
-    # Get possible attention operations
-    attention_types = []
-    for op_type in design_space['operation_types']:
-        for op_param in design_space['operation_parameters'][op_type]:
-            attention_types.append(op_type + '_' + str(op_param))
+    feed_forward_ops, attention_ops = _get_possible_ops(design_space)
     
     embedding = [0 for i in range(embedding_length)]
 
@@ -44,14 +64,16 @@ def model_dict_to_embedding(model_dict: dict, design_space: dict):
 
     for layer in range(model_dict['l']):
         hidden_dim_idx = design_space['hidden_size'].index(model_dict['h'][layer])
-        embedding[layer * (max(design_space['num_heads']) + 2) + 1] = hidden_dim_idx
+        embedding[layer * 3 + 1] = hidden_dim_idx
 
         feed_forward_idx = feed_forward_ops.index(model_dict['f'][layer])
-        embedding[layer * (max(design_space['num_heads']) + 2) + 2] = feed_forward_idx
+        embedding[layer * 3 + 2] = feed_forward_idx
 
+        attn_ops = []
         for i, op in enumerate(model_dict['o'][layer]):
             op_type, op_param, _ = op.split('_')
-            embedding[layer * (max(design_space['num_heads']) + 2) + 3 + i] = attention_types.index(op_type + '_' + op_param) + 1
+            attn_ops.append(op_type + '_' + op_param)
+        embedding[layer * 3 + 3] = attention_ops.index(attn_ops)
 
     return embedding
 
@@ -68,39 +90,28 @@ def embedding_to_model_dict(embedding: list, design_space: dict):
     """
 
     # First we find the embedding length based on the design space
-    embedding_length = max(design_space['encoder_layers']) \
+    embedding_length = 1 + max(design_space['encoder_layers']) \
         * (1 # for hidden dimension
-            + max(design_space['num_heads']) # for each attention head 
             + 1 # for feed-forward stack 
+            + 1 # for attention operations 
            )
 
-    # Get possible feed-forward operations
-    feed_forward_ops = []
-    for num_stacks in design_space['number_of_feed-forward_stacks']:
-        feed_forward_ops.extend([list(tup) for tup in itertools.combinations_with_replacement(design_space['feed-forward_hidden'], num_stacks)])
-
-    # Get possible attention operations
-    attention_types = []
-    for op_type in design_space['operation_types']:
-        for op_param in design_space['operation_parameters'][op_type]:
-            attention_types.append(op_type + '_' + str(op_param))
+    feed_forward_ops, attention_ops = _get_possible_ops(design_space)
 
     model_dict = {'l': design_space['encoder_layers'][embedding[0]], 
         'o': [[] for i in range(design_space['encoder_layers'][embedding[0]])], 
         'h': [], 'f': []}
 
     for layer in range(model_dict['l']):
-        model_dict['h'].append(design_space['hidden_size'][embedding[layer * (max(design_space['num_heads']) + 2) + 1]])
+        model_dict['h'].append(design_space['hidden_size'][embedding[layer * 3 + 1]])
 
-        model_dict['f'].append(feed_forward_ops[embedding[layer * (max(design_space['num_heads']) + 2) + 2]])
+        model_dict['f'].append(feed_forward_ops[embedding[layer * 3 + 2]])
 
-        num_heads = np.count_nonzero(embedding[layer * (max(design_space['num_heads']) + 2) + 3: 
-            layer * (max(design_space['num_heads']) + 2) + 3 + max(design_space['num_heads'])])
-
-        for i in range(max(design_space['num_heads'])):
-            if embedding[layer * (max(design_space['num_heads']) + 2) + 3 + i] > 0:
-                model_dict['o'][layer].append(
-                    attention_types[embedding[layer * (max(design_space['num_heads']) + 2) + 3 + i] - 1] + f'_{model_dict["h"][-1]//num_heads}')
+        attn_ops = attention_ops[embedding[layer * 3 + 3]]
+        model_dict['o'][layer] = [attn + '_' + f'{model_dict["h"][-1]//len(attn_ops)}' for attn in attn_ops] 
 
     return model_dict
+
+
+
 
