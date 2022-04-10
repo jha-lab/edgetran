@@ -5,6 +5,12 @@
 import os
 import sys
 
+sys.path.append('../../txf_design-space/embeddings')
+sys.path.append('../../txf_design-space/flexibert')
+
+from utils import graph_util
+from utils import print_util as pu
+
 import itertools
 import numpy as np
 
@@ -113,12 +119,13 @@ def embedding_to_model_dict(embedding: list, design_space: dict):
     return model_dict
 
 
-def get_embedding_bounds(design_space: dict):
+def get_embedding_bounds(design_space: dict, type: str = 'all'):
     """Get bounds for Sobol sampling
     
     Args:
         design_space (dict): design space dictionary
-
+        type (str, optional): bounds for model types required. In {'all', 'narrow', 'wide'}
+    
     Returns:
         bounds (list): list of tuples with lower and upper bounds
     """
@@ -132,16 +139,29 @@ def get_embedding_bounds(design_space: dict):
 
     feed_forward_ops, attention_ops = _get_possible_ops(design_space)
 
+    # Get index for median number of attention heads
+    median_num_heads_idx = 0
+    median_num_heads = design_space['num_heads'][len(design_space['num_heads'])//2]
+    for i, attn_ops in enumerate(attention_ops):
+        if len(attn_ops) == median_num_heads: 
+            median_num_heads_idx = i - 1
+            break
+
     bounds = [() for i in range(embedding_length)]
 
     bounds[0] = (0, len(design_space['encoder_layers']) - 1)
 
     for layer in range(max(design_space['encoder_layers'])):
         bounds[layer * 3 + 1] = (0, len(design_space['hidden_size']) - 1)
-
         bounds[layer * 3 + 2] = (0, len(feed_forward_ops) - 1)
 
-        bounds[layer * 3  + 3] = (0, len(attention_ops) - 1)
+        if type == 'all':
+            bounds[layer * 3 + 3] = (0, len(attention_ops) - 1)
+        elif type == 'narrow':
+            bounds[layer * 3 + 3] = (0, median_num_heads_idx)
+        else:
+            bounds[layer * 3 + 3] = (median_num_heads_idx + 1, len(attention_ops) - 1)
 
     return bounds
+
 
