@@ -190,3 +190,22 @@ def is_valid_embedding(embedding: list, design_space: dict):
         return False
 
 
+def get_nearest_valid_embedding(embedding: list, design_space: dict):
+    """Get the nearest valid embeddding for the given embedding
+    
+    Args:
+        embedding (list): embedding for the given model dictionary
+        design_space (dict): design space dictionary
+
+    Returns:
+        valid_embedding (list): valid embedding from the given embedding
+    """
+
+    embedding[design_space['encoder_layers'][embedding[0]] * 3 + 1:] = \
+        [0 for i in range(len(embedding[design_space['encoder_layers'][embedding[0]] * 3 + 1:]))]
+
+    assert is_valid_embedding(embedding, design_space)
+
+    return embedding
+
+
