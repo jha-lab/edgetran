@@ -113,5 +113,35 @@ def embedding_to_model_dict(embedding: list, design_space: dict):
     return model_dict
 
 
+def get_embedding_bounds(design_space: dict):
+    """Get bounds for Sobol sampling
+    
+    Args:
+        design_space (dict): design space dictionary
 
+    Returns:
+        bounds (list): list of tuples with lower and upper bounds
+    """
+
+    # First we find the embedding length based on the design space
+    embedding_length = 1 + max(design_space['encoder_layers']) \
+        * (1 # for hidden dimension
+            + 1 # for feed-forward stack 
+            + 1 # for attention operations 
+           )
+
+    feed_forward_ops, attention_ops = _get_possible_ops(design_space)
+
+    bounds = [() for i in range(embedding_length)]
+
+    bounds[0] = (0, len(design_space['encoder_layers']) - 1)
+
+    for layer in range(max(design_space['encoder_layers'])):
+        bounds[layer * 3 + 1] = (0, len(design_space['hidden_size']) - 1)
+
+        bounds[layer * 3 + 2] = (0, len(feed_forward_ops) - 1)
+
+        bounds[layer * 3  + 3] = (0, len(attention_ops) - 1)
+
+    return bounds
 
