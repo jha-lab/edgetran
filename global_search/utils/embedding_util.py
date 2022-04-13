@@ -28,7 +28,7 @@ def _get_possible_ops(design_space: dict):
     # Get possible feed-forward operations
     feed_forward_ops = []
     for num_stacks in design_space['number_of_feed-forward_stacks']:
-        feed_forward_ops.extend([list(tup) for tup in itertools.combinations_with_replacement(design_space['feed-forward_hidden'], num_stacks)])
+        feed_forward_ops.extend([list(tup) for tup in itertools.product(design_space['feed-forward_hidden'], num_stacks)])
 
     # Get possible attention types
     attention_types = []
