@@ -45,16 +45,23 @@ def main():
 
     feed_forward_ops = []
     for num_stacks in design_space['number_of_feed-forward_stacks']:
-        feed_forward_ops.extend([list(tup) for tup in itertools.combinations_with_replacement(design_space['feed-forward_hidden'], num_stacks)])
+        feed_forward_ops.extend([list(tup) for tup in itertools.product(design_space['feed-forward_hidden'], repeat=num_stacks)])
+
+    print(len(feed_forward_ops))
 
     attention_types = []
     for op_type in design_space['operation_types']:
         for op_param in design_space['operation_parameters'][op_type]:
             attention_types.append(op_type + '_' + str(op_param))
 
+    print(len(attention_types))
+
     attention_ops = []
     for num_heads in design_space['num_heads']:
         attention_ops.extend([list(tup) for tup in itertools.combinations_with_replacement(attention_types, num_heads)])
+        print(len([list(tup) for tup in itertools.combinations_with_replacement(attention_types, num_heads)]))
+
+    print(len(attention_ops))
 
     count = 0
 
