@@ -23,8 +23,6 @@ import subprocess
 import time
 import collections
 
-from skopt.sampler import Sobol
-
 from utils import graph_util
 from utils import print_util as pu
 from utils import embedding_util
@@ -53,7 +51,8 @@ PREFIX_CHECKPOINT_DIR = "checkpoint"
 
 USE_GPU_EE = True # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
 
-SOBOL_SAMPLES = 16 # Should be power of 2
+INIT_SAMPLER = 'Lhs' # Should be in ['Sobol', 'Lhs', 'Halton', Hammersly']
+INIT_SAMPLES = 16 # Should be power of 2
 
 
 def worker(models_dir: str,
@@ -271,35 +270,15 @@ def main():
 			dataset[key]['embedding'] = eval(dataset[key]['embedding'])
 		print(f'{pu.bcolors.OKGREEN}Loaded dataset from: {args.txf_dataset_file}{pu.bcolors.ENDC}')
 	else:
-		# Generate Sobol samples
-		narrow_sampler = Sobol()
-		wide_sampler = Sobol()
+		# Generate samples
+		dataset = embedding_util.get_samples(design_space, num_samples=INIT_SAMPLES, sampling_method=INIT_SAMPLER, debug=True)
 
-		narrow_embedding_bounds = embedding_util.get_embedding_bounds(design_space, type='narrow')
-		wide_embedding_bounds = embedding_util.get_embedding_bounds(design_space, type='wide')
+		# Save dataset
+		json_dataset = {}
+		for key, value in dataset.items():
+			json_dataset[key] = {'model_dict': value['model_dict'], 'model_type': value['model_type'], 'embedding': str(value['embedding'])}
 
-		narrow_sampled_embeddings = narrow_sampler.generate(narrow_embedding_bounds, SOBOL_SAMPLES//2, random_state=random_seed)
-		wide_sampled_embeddings = wide_sampler.generate(wide_embedding_bounds,SOBOL_SAMPLES//2, random_state=random_seed)
-
-		narrow_valid_embeddings = \
-		    [embedding_util.get_nearest_valid_embedding(embedding, design_space) for embedding in narrow_sampled_embeddings]
-		wide_valid_embeddings = \
-		    [embedding_util.get_nearest_valid_embedding(embedding, design_space) for embedding in wide_sampled_embeddings]
-
-		all_embeddings = narrow_valid_embeddings + wide_valid_embeddings
-
-		# Find out model dictionary and hash and save dataset
-		dataset = {}
-		for embedding in all_embeddings:
-			model_dict = embedding_util.embedding_to_model_dict(embedding, design_space)
-			model_type = embedding_util.get_model_type(model_dict, design_space)
-
-			model_graph = graph_util.model_dict_to_graph(model_dict)
-			model_hash = graph_util.hash_graph(*model_graph, model_dict=model_dict)
-
-			dataset[model_hash] = {'model_dict': model_dict, 'model_type': model_type, 'embedding': str(embedding)}
-
-		json.dump(dataset, open(args.txf_dataset_file, 'w+'))
+		json.dump(json_dataset, open(args.txf_dataset_file, 'w+'))
 		print(f'{pu.bcolors.OKGREEN}Saved dataset with {len(dataset)} models to: {args.txf_dataset_file}{pu.bcolors.ENDC}')
 
 	# Instantiate list of jobs
