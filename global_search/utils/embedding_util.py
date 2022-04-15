@@ -14,6 +14,8 @@ from utils import print_util as pu
 import itertools
 import numpy as np
 
+from skopt.sampler import Sobol, Lhs, Halton, Hammersly
+
 
 def _get_possible_ops(design_space: dict):
     """Get possible operations
@@ -230,4 +232,59 @@ def get_model_type(model_dict: dict, design_space: dict):
     model_type += 'narrow' if max_num_heads < median_num_heads else 'wide'
 
     return model_type
+
+
+def get_samples(design_space: dict, num_samples: int, sampling_method='Lhs', debug=False):
+    """Get the embeddings sampled using the given low-discrepancy sampling method
+    
+    Args:
+        design_space (dict): design space dictionary
+        num_samples (int): number of samples 
+        sampling_method (str, optional): low-discrepancy sampling method in ['Sobol', 'Lhs', 'Halton', Hammersly']
+        debug (bool, optional): to print debugging output
+    
+    Returns
+        all_embeddings (list): embeddings sampled using the given sampling method
+    """
+
+    if debug: print(f'Generating {num_samples} samples using the {sampling_method} sampler...')
+    
+    if sampling_method == 'Lhs':
+        exec(f'narrow_sampler = {sampling_method}(criterion="ratio")')
+        exec(f'wide_sampler = {sampling_method}(criterion="ratio")')
+    else:
+        exec(f'narrow_sampler = {sampling_method}()')
+        exec(f'wide_sampler = {sampling_method}()')
+    
+    narrow_embedding_bounds = get_embedding_bounds(design_space, type='narrow')
+    wide_embedding_bounds = get_embedding_bounds(design_space, type='wide')
+
+    narrow_sampled_embeddings = eval(f'narrow_sampler.generate(narrow_embedding_bounds, {num_samples}, random_state=0)')
+    wide_sampled_embeddings = eval(f'wide_sampler.generate(wide_embedding_bounds, {num_samples}, random_state=0)')
+
+    narrow_valid_embeddings = [get_nearest_valid_embedding(embedding, design_space) for embedding in narrow_sampled_embeddings]
+    wide_valid_embeddings = [get_nearest_valid_embedding(embedding, design_space) for embedding in wide_sampled_embeddings]
+
+    narrow_model_dicts = [embedding_to_model_dict(embedding, design_space) for embedding in narrow_valid_embeddings]
+    wide_model_dicts = [embedding_to_model_dict(embedding, design_space) for embedding in wide_valid_embeddings]
+
+    narrow_model_types = [get_model_type(model_dict, design_space) for model_dict in narrow_model_dicts]
+    wide_model_types = [get_model_type(model_dict, design_space) for model_dict in wide_model_dicts]
+
+    if debug: print(f'Narrow model types: {collections.Counter(narrow_model_types)}')
+    if debug: print(f'Wide model types: {collections.Counter(wide_model_types)}')
+
+    all_model_dicts = narrow_model_dicts + wide_model_dicts
+    all_hashes = []
+
+    for model_dict in all_model_dicts:
+        model_graph = graph_util.model_dict_to_graph(model_dict)
+        model_hash = graph_util.hash_graph(*model_graph, model_dict=model_dict)
+        all_hashes.append(model_hash)
+
+    assert len(set(all_hashes)) == len(all_model_dicts) 
+    
+    all_embeddings = narrow_valid_embeddings + wide_valid_embeddings
+    
+    return all_embeddings
 
