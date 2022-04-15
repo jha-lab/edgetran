@@ -13,6 +13,7 @@ from utils import print_util as pu
 
 import itertools
 import numpy as np
+import collections
 
 from skopt.sampler import Sobol, Lhs, Halton, Hammersly
 
@@ -244,7 +245,7 @@ def get_samples(design_space: dict, num_samples: int, sampling_method='Lhs', deb
         debug (bool, optional): to print debugging output
     
     Returns
-        all_embeddings (list): embeddings sampled using the given sampling method
+        samples_dict (dict): dictionary of sampled models
     """
 
     if debug: print(f'Generating {num_samples} samples using the {sampling_method} sampler...')
@@ -259,8 +260,8 @@ def get_samples(design_space: dict, num_samples: int, sampling_method='Lhs', deb
     narrow_embedding_bounds = get_embedding_bounds(design_space, type='narrow')
     wide_embedding_bounds = get_embedding_bounds(design_space, type='wide')
 
-    narrow_sampled_embeddings = eval(f'narrow_sampler.generate(narrow_embedding_bounds, {num_samples}, random_state=0)')
-    wide_sampled_embeddings = eval(f'wide_sampler.generate(wide_embedding_bounds, {num_samples}, random_state=0)')
+    narrow_sampled_embeddings = eval(f'narrow_sampler.generate(narrow_embedding_bounds, {num_samples//2}, random_state=0)')
+    wide_sampled_embeddings = eval(f'wide_sampler.generate(wide_embedding_bounds, {num_samples//2}, random_state=0)')
 
     narrow_valid_embeddings = [get_nearest_valid_embedding(embedding, design_space) for embedding in narrow_sampled_embeddings]
     wide_valid_embeddings = [get_nearest_valid_embedding(embedding, design_space) for embedding in wide_sampled_embeddings]
@@ -274,17 +275,26 @@ def get_samples(design_space: dict, num_samples: int, sampling_method='Lhs', deb
     if debug: print(f'Narrow model types: {collections.Counter(narrow_model_types)}')
     if debug: print(f'Wide model types: {collections.Counter(wide_model_types)}')
 
+    all_embeddings = narrow_valid_embeddings + wide_valid_embeddings
     all_model_dicts = narrow_model_dicts + wide_model_dicts
+    all_model_types = narrow_model_types + wide_model_types
     all_hashes = []
+    samples_dict = {}
 
-    for model_dict in all_model_dicts:
+    assert len(all_embeddings) == len(all_model_dicts)
+
+    for i in range(len(all_model_dicts)):
+        model_dict = all_model_dicts[i]
+        embedding = all_embeddings[i]
+        model_type = all_model_types[i]
+
         model_graph = graph_util.model_dict_to_graph(model_dict)
         model_hash = graph_util.hash_graph(*model_graph, model_dict=model_dict)
         all_hashes.append(model_hash)
 
+        samples_dict[model_hash] = {'model_dict': model_dict, 'model_type': model_type, 'embedding': embedding}
+
     assert len(set(all_hashes)) == len(all_model_dicts) 
     
-    all_embeddings = narrow_valid_embeddings + wide_valid_embeddings
-    
-    return all_embeddings
+    return samples_dict
 
