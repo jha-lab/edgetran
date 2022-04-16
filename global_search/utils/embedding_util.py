@@ -1,4 +1,4 @@
-# Generate a dataset file with all possible model dictionaries and their hashes
+# Utility functions for embeddings and model sampling
 
 # Author : Shikhar Tuli
 
