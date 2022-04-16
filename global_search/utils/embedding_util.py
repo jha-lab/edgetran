@@ -16,6 +16,7 @@ import numpy as np
 import collections
 
 from skopt.sampler import Sobol, Lhs, Halton, Hammersly
+from skopt.space import Space
 
 
 def _get_possible_ops(design_space: dict):
@@ -241,7 +242,7 @@ def get_samples(design_space: dict, num_samples: int, sampling_method='Lhs', deb
     Args:
         design_space (dict): design space dictionary
         num_samples (int): number of samples 
-        sampling_method (str, optional): low-discrepancy sampling method in ['Sobol', 'Lhs', 'Halton', Hammersly']
+        sampling_method (str, optional): low-discrepancy sampling method in ['Sobol', 'Lhs', 'Halton', Hammersly', 'Random']
         debug (bool, optional): to print debugging output
     
     Returns
@@ -249,19 +250,26 @@ def get_samples(design_space: dict, num_samples: int, sampling_method='Lhs', deb
     """
 
     if debug: print(f'Generating {num_samples} samples using the {sampling_method} sampler...')
-    
-    if sampling_method == 'Lhs':
-        exec(f'narrow_sampler = {sampling_method}(criterion="ratio")')
-        exec(f'wide_sampler = {sampling_method}(criterion="ratio")')
-    else:
-        exec(f'narrow_sampler = {sampling_method}()')
-        exec(f'wide_sampler = {sampling_method}()')
-    
+
     narrow_embedding_bounds = get_embedding_bounds(design_space, type='narrow')
     wide_embedding_bounds = get_embedding_bounds(design_space, type='wide')
+    
+    if sampling_method == 'Lhs':
+        narrow_sampler = eval(f'{sampling_method}(criterion="ratio")')
+        wide_sampler = eval(f'{sampling_method}(criterion="ratio")')
+    elif sampling_method != 'Random':
+        narrow_sampler = eval(f'{sampling_method}()')
+        wide_sampler = eval(f'{sampling_method}()')
+    else:
+        narrow_sampler = Space(narrow_embedding_bounds)
+        wide_sampler = Space(wide_embedding_bounds)
 
-    narrow_sampled_embeddings = eval(f'narrow_sampler.generate(narrow_embedding_bounds, {num_samples//2}, random_state=0)')
-    wide_sampled_embeddings = eval(f'wide_sampler.generate(wide_embedding_bounds, {num_samples//2}, random_state=0)')
+    if sampling_method != 'Random':
+        narrow_sampled_embeddings = eval(f'narrow_sampler.generate(narrow_embedding_bounds, {num_samples//2}, random_state=0)')
+        wide_sampled_embeddings = eval(f'wide_sampler.generate(wide_embedding_bounds, {num_samples//2}, random_state=0)')
+    else:
+        narrow_sampled_embeddings = narrow_sampler.rvs(num_samples//2, random_state=0)
+        wide_sampled_embeddings = wide_sampler.rvs(num_samples//2, random_state=0)
 
     narrow_valid_embeddings = [get_nearest_valid_embedding(embedding, design_space) for embedding in narrow_sampled_embeddings]
     wide_valid_embeddings = [get_nearest_valid_embedding(embedding, design_space) for embedding in wide_sampled_embeddings]
