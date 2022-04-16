@@ -1,4 +1,4 @@
-# Run Grow-and-Prune on the BERT architecture using the FlexiBERT framework
+# Run global search for best-performing models on the FlexiBERT design space
 
 # Author : Shikhar Tuli
 
