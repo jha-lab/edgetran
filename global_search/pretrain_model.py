@@ -29,24 +29,42 @@ import logging
 PREFIX_CHECKPOINT_DIR = "checkpoint"
 
 
-def _get_training_args(seed, max_steps, learning_rate, per_gpu_batch_size, output_dir, local_rank):
-	# warmup_steps needs to be changed to 10,000 and overwrite_output_dir needs to be added for manual pre-training
-    a = "--seed {} \
-    --do_train \
-    --max_seq_length 512 \
-    --per_gpu_train_batch_size {} \
-    --max_steps {} \
-    --adam_epsilon 1e-6 \
-    --adam_beta2 0.99 \
-    --learning_rate {} \
-    --weight_decay 0.01 \
-    --save_total_limit 2 \
-    --warmup_steps 1000 \
-    --lr_scheduler_type linear \
-    --gradient_accumulation_steps 2 \
-    --output_dir {} \
-    --local_rank {} \
-        ".format(seed, per_gpu_batch_size, max_steps, learning_rate, output_dir, local_rank)
+def _get_training_args(seed, overwrite_ouput_dir, max_steps, learning_rate, per_gpu_batch_size, gradient_accumulation_steps, output_dir, local_rank):
+    if overwrite_ouput_dir:
+    	a = "--seed {} \
+		    --do_train \
+		    --max_seq_length 512 \
+		    --per_device_train_batch_size {} \
+		    --max_steps {} \
+		    --adam_epsilon 1e-6 \
+		    --adam_beta2 0.99 \
+		    --learning_rate {} \
+		    --weight_decay 0.01 \
+		    --save_total_limit 2 \
+		    --warmup_steps 10000 \
+		    --lr_scheduler_type linear \
+		    --gradient_accumulation_steps {} \
+		    --overwrite_output_dir \
+		    --output_dir {} \
+		    --local_rank {} \
+		        ".format(seed, per_gpu_batch_size, max_steps, learning_rate, gradient_accumulation_steps, output_dir, local_rank)
+    else:
+    	a = "--seed {} \
+		    --do_train \
+		    --max_seq_length 512 \
+		    --per_device_train_batch_size {} \
+		    --max_steps {} \
+		    --adam_epsilon 1e-6 \
+		    --adam_beta2 0.99 \
+		    --learning_rate {} \
+		    --weight_decay 0.01 \
+		    --save_total_limit 2 \
+		    --warmup_steps 10000 \
+		    --lr_scheduler_type linear \
+		    --gradient_accumulation_steps {} \
+		    --output_dir {} \
+		    --local_rank {} \
+		        ".format(seed, per_gpu_batch_size, max_steps, learning_rate, gradient_accumulation_steps, output_dir, local_rank)
     return shlex.split(a)
 
 
@@ -61,23 +79,43 @@ def main(args):
 			for path in content
 			if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(args.output_dir, path))
 		]
-	if len(checkpoints) > 0:
-		print(f'No checkpoint found to continue pre-training in the output directory: {args.output_dir}')
-		checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
-		curr_steps = int(checkpoint_dir.split('-')[1])
-	else:
-		curr_steps = 0
-
-	max_steps = curr_steps + args.steps
-
-	seed = 0
-	training_args = _get_training_args(seed, max_steps, args.learning_rate, 32, args.output_dir, args.local_rank)
+	overwrite_output_dir = False if len(checkpoints) > 0 else True
 
 	# Get model dictionary from output directory
 	model_dict = json.load(open(os.path.join(args.output_dir, 'model_dict.json'), 'r'))
 
-	# Pre-train model
-	metrics, log_history, model = pretrain(training_args, model_dict)
+	# Set initial training parameters
+	seed = 0
+	if args.trial_run:
+		batch_size, gradient_accumulation_steps = 64, 1 # Here we assume pre-training to be run on 4 GPUs, i.e., a net batch size of 256
+	else:
+		batch_size_file = json.load(open(os.path.join(args.output_dir, 'batch_size.json'), 'r'))
+		batch_size, gradient_accumulation_steps = batch_size_file['batch_size'], batch_size_file['gradient_accumulation_steps']
+
+	if args.trial_run:
+		# Run pre-training, reduce batch size if it fails
+		metrics, log_history, model = None, None, None
+		while batch_size >= 1:
+			try:
+				training_args = _get_training_args(seed, overwrite_output_dir, 1, args.learning_rate, batch_size, gradient_accumulation_steps, args.output_dir, args.local_rank)
+
+				# Pre-train model
+				metrics, log_history, model = pretrain(training_args, model_dict)
+			except Exception as e:
+				print(f'Encountered error: \n{e} \nReducing batch size to {batch_size//2}...')
+				batch_size, gradient_accumulation_steps = batch_size//2, 2 * gradient_accumulation_steps
+			else:
+				break
+
+		if batch_size < 1: raise RuntimeError(f'Batch size reached below 1. Can\'t fit model.')
+
+		# Store batch size and gradient accumulation steps for final pre-training
+		json.dump({'batch_size': batch_size, 'gradient_accumulation_steps': gradient_accumulation_steps}, open(os.path.join(args.output_dir, 'batch_size.json'), 'w+'))
+	else:
+		training_args = _get_training_args(seed, overwrite_output_dir, args.steps, args.learning_rate, batch_size, gradient_accumulation_steps, args.output_dir, args.local_rank)
+
+		# Pre-train model
+		metrics, log_history, model = pretrain(training_args, model_dict)
 
 	# Save log history
 	json.dump(log_history, open(os.path.join(args.output_dir, 'log_history.json'), 'w+'))
@@ -97,6 +135,9 @@ if __name__ == '__main__':
 		metavar='',
 		type=str,
 		help='path to save the pretrained model')
+	parser.add_argument('--trial_run',
+		action='store_true',
+		help='trial run')
 	parser.add_argument('--steps',
 		metavar='',
 		type=int,
