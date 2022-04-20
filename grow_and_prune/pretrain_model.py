@@ -62,10 +62,10 @@ def main(args):
 			if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(args.output_dir, path))
 		]
 	if len(checkpoints) > 0:
-		print(f'No checkpoint found to continue pre-training in the output directory: {args.output_dir}')
 		checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
 		curr_steps = int(checkpoint_dir.split('-')[1])
 	else:
+		print(f'No checkpoint found to continue pre-training in the output directory: {args.output_dir}')
 		curr_steps = 0
 
 	max_steps = curr_steps + args.steps
