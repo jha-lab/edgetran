@@ -5,11 +5,10 @@
 import os
 import sys
 
-sys.path.append('../../txf_design-space/embeddings')
+sys.path.append('../../txf_design-space/')
 sys.path.append('../../txf_design-space/flexibert')
 
-from utils import graph_util
-from utils import print_util as pu
+from embeddings.utils import graph_util, print_util as pu
 
 import itertools
 import numpy as np
@@ -251,8 +250,11 @@ def get_samples(design_space: dict, num_samples: int, sampling_method='Lhs', deb
 
     if debug: print(f'Generating {num_samples} samples using the {sampling_method} sampler...')
 
-    narrow_embedding_bounds = get_embedding_bounds(design_space, type='narrow')
-    wide_embedding_bounds = get_embedding_bounds(design_space, type='wide')
+    if sampling_method != 'Random':
+        narrow_embedding_bounds = get_embedding_bounds(design_space, type='narrow')
+        wide_embedding_bounds = get_embedding_bounds(design_space, type='wide')
+    else:
+        embedding_bounds = get_embedding_bounds(design_space, type='all')
     
     if sampling_method == 'Lhs':
         narrow_sampler = eval(f'{sampling_method}(criterion="ratio")')
@@ -261,31 +263,40 @@ def get_samples(design_space: dict, num_samples: int, sampling_method='Lhs', deb
         narrow_sampler = eval(f'{sampling_method}()')
         wide_sampler = eval(f'{sampling_method}()')
     else:
-        narrow_sampler = Space(narrow_embedding_bounds)
-        wide_sampler = Space(wide_embedding_bounds)
+        sampler = Space(embedding_bounds)
 
     if sampling_method != 'Random':
         narrow_sampled_embeddings = eval(f'narrow_sampler.generate(narrow_embedding_bounds, {num_samples//2}, random_state=0)')
         wide_sampled_embeddings = eval(f'wide_sampler.generate(wide_embedding_bounds, {num_samples//2}, random_state=0)')
+
+        narrow_valid_embeddings = [get_nearest_valid_embedding(embedding, design_space) for embedding in narrow_sampled_embeddings]
+        wide_valid_embeddings = [get_nearest_valid_embedding(embedding, design_space) for embedding in wide_sampled_embeddings]
+
+        narrow_model_dicts = [embedding_to_model_dict(embedding, design_space) for embedding in narrow_valid_embeddings]
+        wide_model_dicts = [embedding_to_model_dict(embedding, design_space) for embedding in wide_valid_embeddings]
+
+        narrow_model_types = [get_model_type(model_dict, design_space) for model_dict in narrow_model_dicts]
+        wide_model_types = [get_model_type(model_dict, design_space) for model_dict in wide_model_dicts]
+
+        if debug: print(f'Narrow model types: {collections.Counter(narrow_model_types)}')
+        if debug: print(f'Wide model types: {collections.Counter(wide_model_types)}')
+
+        all_embeddings = narrow_valid_embeddings + wide_valid_embeddings
+        all_model_dicts = narrow_model_dicts + wide_model_dicts
+        all_model_types = narrow_model_types + wide_model_types
     else:
-        narrow_sampled_embeddings = narrow_sampler.rvs(num_samples//2, random_state=0)
-        wide_sampled_embeddings = wide_sampler.rvs(num_samples//2, random_state=0)
+        sampled_embeddings = sampler.rvs(num_samples)
 
-    narrow_valid_embeddings = [get_nearest_valid_embedding(embedding, design_space) for embedding in narrow_sampled_embeddings]
-    wide_valid_embeddings = [get_nearest_valid_embedding(embedding, design_space) for embedding in wide_sampled_embeddings]
+        valid_embeddings = [get_nearest_valid_embedding(embedding, design_space) for embedding in sampled_embeddings]
+        model_dicts = [embedding_to_model_dict(embedding, design_space) for embedding in valid_embeddings]
+        model_types = [get_model_type(model_dict, design_space) for model_dict in model_dicts]
 
-    narrow_model_dicts = [embedding_to_model_dict(embedding, design_space) for embedding in narrow_valid_embeddings]
-    wide_model_dicts = [embedding_to_model_dict(embedding, design_space) for embedding in wide_valid_embeddings]
+        if debug: print(f'Model types: {collections.Counter(model_types)}')
 
-    narrow_model_types = [get_model_type(model_dict, design_space) for model_dict in narrow_model_dicts]
-    wide_model_types = [get_model_type(model_dict, design_space) for model_dict in wide_model_dicts]
-
-    if debug: print(f'Narrow model types: {collections.Counter(narrow_model_types)}')
-    if debug: print(f'Wide model types: {collections.Counter(wide_model_types)}')
-
-    all_embeddings = narrow_valid_embeddings + wide_valid_embeddings
-    all_model_dicts = narrow_model_dicts + wide_model_dicts
-    all_model_types = narrow_model_types + wide_model_types
+        all_embeddings = valid_embeddings
+        all_model_dicts = model_dicts
+        all_model_types = model_types
+    
     all_hashes = []
     samples_dict = {}
 
