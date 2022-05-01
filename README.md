@@ -1,2 +1,3 @@
-# edge_txf
-Pruned Transformers on the Edge
+# EdgeTran
+
+Pruned Transformers on the Edge using hardware-aware NAS. More details coming soon...
