@@ -1,3 +1,6 @@
 [submodule "txf_design-space"]
 	path = txf_design-space
 	url = https://github.com/JHA-Lab/txf_design-space.git
+[submodule "protran"]
+	path = protran
+	url = https://github.com/JHA-Lab/protran.git
