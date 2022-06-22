@@ -9,6 +9,7 @@ then
 
 	# Install additional libraries
 	conda install -c conda-forge treelib
+	pip install lightgbm
 else
 	cd txf_design-space
 
@@ -44,6 +45,7 @@ else
 	pip install networkx
 	pip install tabulate
 	pip install optuna
+	pip install lightgbm
 
 	# Check installation
 	python check_install.py
