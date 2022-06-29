@@ -19,9 +19,9 @@ Help()
    # Display Help
    echo -e "${CYAN}Script to fine-tune a given model${ENDC}"
    echo
-   echo -e "Syntax: source ${CYAN}./job_finetune.sh${ENDC} [${YELLOW}flags${ENDC}]"
+   echo -e "Syntax: source ${CYAN}./job_scripts/job_finetune.sh${ENDC} [${YELLOW}flags${ENDC}]"
    echo "Flags:"
-   echo -e "${YELLOW}-c${ENDC} | ${YELLOW}--cluster${ENDC} [default = ${GREEN}\"tiger\"${ENDC}] \t\t Selected cluster - adroit, tiger or della"
+   echo -e "${YELLOW}-c${ENDC} | ${YELLOW}--cluster${ENDC} [default = ${GREEN}\"della\"${ENDC}] \t\t Selected cluster - adroit, tiger or della"
    echo -e "${YELLOW}-p${ENDC} | ${YELLOW}--partition${ENDC} [default = ${GREEN}\"gpu\"${ENDC}] \t\t Selected partition if cluster is della"
    echo -e "${YELLOW}-i${ENDC} | ${YELLOW}--id${ENDC} [default = ${GREEN}\"stuli\"${ENDC}] \t\t\t Selected PU-NetID to email slurm updates"
    echo -e "${YELLOW}-m${ENDC} | ${YELLOW}--model_hash${ENDC} [default = ${GREEN}\"\"${ENDC}] \t\t Hash of the pretrained model"
@@ -95,6 +95,7 @@ echo "#SBATCH --cpus-per-task=16                             # cpu-cores per tas
 echo "#SBATCH --mem=64G                                      # memory per cpu-core (4G is default)" >> $job_file
 echo "#SBATCH --gres=${cluster_gpu}                          # number of gpus per node" >> $job_file
 echo "#SBATCH --time=72:00:00                               # total run time limit (HH:MM:SS)" >> $job_file
+echo "#SBATCH --mail-type=all" >> $job_file
 echo "" >> $job_file
 
 echo "module purge" >> $job_file
@@ -108,4 +109,4 @@ echo "python finetune_model.py --pretrained_dir ../models/global_search/${model_
 
 sbatch $job_file
 
-cd ../../
+cd ../..
