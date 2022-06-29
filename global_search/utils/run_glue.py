@@ -398,9 +398,9 @@ def main(args):
 
     if not os.path.exists(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'huggingface_datasets')):
         datasets = datasets.map(preprocess_function, batched=True, load_from_cache_file=not data_args.overwrite_cache)
-        datasets.save_to_disk(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'huggingface_datasets'))
+        datasets.save_to_disk(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'huggingface_datasets', data_args.task_name))
     else:
-        datasets = load_from_disk(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'huggingface_datasets'))
+        datasets = load_from_disk(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'huggingface_datasets', data_args.task_name))
 
     print(f'Dataset mapped!')
 
@@ -477,6 +477,12 @@ def main(args):
     )
 
     logger.info(f'***Device: {trainer.args.device}***')
+
+    def my_hp_space(trial):
+        return {
+            "learning_rate": trial.suggest_float("learning_rate", 2e-5, 5e-4, log=True),
+            "per_device_train_batch_size": trial.suggest_categorical("per_device_train_batch_size", [16, 32, 64])
+        }
 
 
     # Training
