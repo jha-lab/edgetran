@@ -36,7 +36,7 @@ import logging
 
 
 PREFIX_CHECKPOINT_DIR = "checkpoint"
-GLUE_TASKS = ['mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli']
+GLUE_TASKS = ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli']
 
 
 def get_training_args(pretrained_dir, output_dir, task, autotune, autotune_trials):
@@ -87,12 +87,6 @@ def main(args):
 
 	# Load all GLUE datasets
 	load_all_glue_datasets()
-
-	# Tokenize GLUE datasets
-	if not os.path.exists('../GLUE_data/'):
-		for task in GLUE_TASKS:
-			args_data = get_tokenizer_args(output_dir, task)
-			save_dataset(args_data)
 
 	# Load tokenizer and get model configuration
 	tokenizer = RobertaTokenizer.from_pretrained('../txf_design-space/roberta_tokenizer/')
