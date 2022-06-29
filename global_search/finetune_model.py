@@ -81,6 +81,8 @@ def get_tokenizer_args(output_dir, task):
 def main(args):
 	"""Finetuning front-end function"""
 
+	print(f'Finetuning model pre-trained at: {args.pretrained_dir}')
+
 	output_dir = os.path.join(args.pretrained_dir, 'glue')
 
 	model_dict = json.load(open(os.path.join(args.pretrained_dir, 'model_dict.json'), 'r'))
