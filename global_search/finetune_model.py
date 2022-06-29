@@ -46,6 +46,7 @@ def get_training_args(pretrained_dir, output_dir, task, autotune, autotune_trial
 		--do_train \
 		--do_eval \
 		{"--autotune" if autotune else ""} \
+		--autotune_trials {autotune_trials} \
 		--logging_steps 50 \
 		--max_seq_length 512 \
 		--per_device_train_batch_size 16 \
