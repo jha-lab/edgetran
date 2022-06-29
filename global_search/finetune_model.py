@@ -92,7 +92,7 @@ def main(args):
 	tokenizer = RobertaTokenizer.from_pretrained('../txf_design-space/roberta_tokenizer/')
 	tokenizer.save_pretrained(output_dir)
 
-	config_new = BertConfig(vocab_size = tokenizer.vocab_size)
+	config_new = BertConfig(vocab_size=tokenizer.vocab_size)
 	config_new.from_model_dict_hetero(model_dict)
 	config_new.save_pretrained(output_dir)
 	

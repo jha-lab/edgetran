@@ -331,6 +331,14 @@ def main(args):
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
+    classifier_config = BertConfig.from_pretrained(model_args.model_name_or_path, vocab_size=tokenizer.vocab_size)
+
+    def model_init():
+        model_temp = BertForSequenceClassificationModular(config)
+        model_temp.bert.load_model_from_source(model.bert)
+        return model_temp
+
+    model_temp = model_init()
 
     # Preprocessing the datasets
     if data_args.task_name is not None:
@@ -394,15 +402,15 @@ def main(args):
             result["label"] = [(label_to_id[l] if l != -1 else -1) for l in examples["label"]]
         return result
 
-    print(f'Dataset being mapped...')
-
     if not os.path.exists(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'huggingface_datasets')):
+        print(f'Dataset being mapped...')
         datasets = datasets.map(preprocess_function, batched=True, load_from_cache_file=not data_args.overwrite_cache)
         datasets.save_to_disk(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'huggingface_datasets', data_args.task_name))
+        print(f'Dataset mapped!')
     else:
         datasets = load_from_disk(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'huggingface_datasets', data_args.task_name))
+        print(f'Loaded dataset from disk!')
 
-    print(f'Dataset mapped!')
 
     if training_args.do_train:
         if "train" not in datasets:
@@ -467,7 +475,7 @@ def main(args):
 
     # Initialize our Trainer
     trainer = Trainer(
-        model=model,
+        model_init=model_init,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
