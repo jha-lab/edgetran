@@ -36,7 +36,8 @@ import logging
 
 
 PREFIX_CHECKPOINT_DIR = "checkpoint"
-GLUE_TASKS = ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli']
+# GLUE_TASKS = ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli']
+GLUE_TASKS = ['cola', 'mrpc', 'rte', 'stsb']
 
 
 def get_training_args(pretrained_dir, output_dir, task, autotune, autotune_trials):
@@ -50,12 +51,13 @@ def get_training_args(pretrained_dir, output_dir, task, autotune, autotune_trial
 		--logging_steps 50 \
 		--max_seq_length 512 \
 		--per_device_train_batch_size 16 \
-		--gradient_accumulation_steps 4 \
+		--gradient_accumulation_steps 2 \
 		--load_best_model_at_end \
 		--metric_for_best_model eval_loss \
 		--learning_rate 2e-5 \
 		--weight_decay 0.01 \
-		--num_train_epochs 5 \
+		--num_train_epochs 10 \
+		--warmup_ratio 0.06 \
 		--overwrite_output_dir \
 		--output_dir {output_dir}'
 
@@ -97,10 +99,23 @@ def main(args):
 	config_new = BertConfig(vocab_size=tokenizer.vocab_size)
 	config_new.from_model_dict_hetero(model_dict)
 	config_new.save_pretrained(output_dir)
+
+	# Find the latest checkpoint for chosen model
+	re_checkpoint = re.compile(r"^" + PREFIX_CHECKPOINT_DIR + r"\-(\d+)$")
+	content = os.listdir(args.pretrained_dir)
+	checkpoints = [
+			path
+			for path in content
+			if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(args.pretrained_dir, path))]
+	
+	# Get latest checkpoint
+	if len(checkpoints) > 0:
+		checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
+		latest_checkpoint = int(checkpoint_dir.split('-')[1])
 	
 	# Initialize and save given model
 	model = BertModelModular(config_new)
-	model.from_pretrained(args.pretrained_dir)
+	model.from_pretrained(os.path.join(args.pretrained_dir, checkpoint_dir))
 	model.save_pretrained(output_dir)
 
 	# Finetune for all GLUE tasks
@@ -111,7 +126,7 @@ def main(args):
 
 		print(f'Finetuning on GLUE dataset: {task.upper()}')
 
-		autotune = args.autotune # and not (task=='qqp' or task == 'qnli')
+		autotune = args.autotune and not (task == 'qqp' or task == 'qnli')
 		training_args = get_training_args(output_dir, os.path.join(output_dir, task), task, autotune, args.autotune_trials)
 		metrics = run_glue(training_args)
 		print(metrics)
