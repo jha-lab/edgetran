@@ -47,6 +47,7 @@ from transformers import BertModel
 from transformers import RobertaTokenizer, RobertaModel
 from transformers.models.bert.configuration_bert import BertConfig
 from transformers.models.bert.modeling_modular_bert import BertModelModular, BertForMaskedLMModular, BertForSequenceClassificationModular
+import json
 
 # logging.disable(logging.INFO)
 # logging.disable(logging.WARNING)
@@ -402,7 +403,7 @@ def main(args):
             result["label"] = [(label_to_id[l] if l != -1 else -1) for l in examples["label"]]
         return result
 
-    if not os.path.exists(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'huggingface_datasets')):
+    if not os.path.exists(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'huggingface_datasets', data_args.task_name)):
         print(f'Dataset being mapped...')
         datasets = datasets.map(preprocess_function, batched=True, load_from_cache_file=not data_args.overwrite_cache)
         datasets.save_to_disk(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'huggingface_datasets', data_args.task_name))
@@ -489,7 +490,7 @@ def main(args):
     def my_hp_space(trial):
         return {
             "learning_rate": trial.suggest_float("learning_rate", 2e-5, 5e-4, log=True),
-            "per_device_train_batch_size": trial.suggest_categorical("per_device_train_batch_size", [4, 8, 16])
+            "per_device_train_batch_size": trial.suggest_categorical("per_device_train_batch_size", [4, 8, 16]) # Assuming 2 GPUs and gradient_accumulation_steps of 2, net batch sizes: [16, 32, 64]
         }
 
 
@@ -517,13 +518,7 @@ def main(args):
             #print("Done hyperparameter tuning")
             trainer.args.learning_rate = best_result.hyperparameters['learning_rate']
             trainer.args.per_device_train_batch_size = best_result.hyperparameters['per_device_train_batch_size']
-            output_file = training_args.output_dir + 'best_hp.json'
-            with open(output_file, 'w') as fp:
-                json.dump(best_result.hyperparameters, fp)
-
-            #print(f'Best learning rate for {data_args.task_name} is {trainer.args.learning_rate}')
-            #trainer.args.per_device_train_batch_size = best_result.hyperparameters['per_device_train_batch_size']
-
+            json.dump(best_result.hyperparameters, open(os.path.join(training_args.output_dir, 'best_hp.json'), 'w+'))
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         metrics = train_result.metrics
         max_train_samples = (
