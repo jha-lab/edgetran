@@ -65,10 +65,10 @@ done
 
 if [[ $cluster == "adroit" ]]
 then
-  cluster_gpu="gpu:tesla_v100:4"
+  cluster_gpu="gpu:tesla_v100:2"
 elif [[ $cluster == "tiger" ]]
 then
-  cluster_gpu="gpu:4"
+  cluster_gpu="gpu:2"
 elif [[ $cluster == "della" ]]
 then
   cluster_gpu="gpu:2"
@@ -92,7 +92,7 @@ fi
 echo "#SBATCH --nodes=1                                      # node count" >> $job_file
 echo "#SBATCH --ntasks-per-node=1                            # total number of tasks across all nodes" >> $job_file
 echo "#SBATCH --cpus-per-task=16                             # cpu-cores per task (>1 if multi-threaded tasks)" >> $job_file
-echo "#SBATCH --mem=64G                                      # memory per cpu-core (4G is default)" >> $job_file
+echo "#SBATCH --mem=32G                                      # memory per cpu-core (4G is default)" >> $job_file
 echo "#SBATCH --gres=${cluster_gpu}                          # number of gpus per node" >> $job_file
 echo "#SBATCH --time=72:00:00                               # total run time limit (HH:MM:SS)" >> $job_file
 echo "#SBATCH --mail-type=all" >> $job_file

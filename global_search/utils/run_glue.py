@@ -48,9 +48,11 @@ from transformers import RobertaTokenizer, RobertaModel
 from transformers.models.bert.configuration_bert import BertConfig
 from transformers.models.bert.modeling_modular_bert import BertModelModular, BertForMaskedLMModular, BertForSequenceClassificationModular
 import json
+import optuna
 
 # logging.disable(logging.INFO)
 # logging.disable(logging.WARNING)
+optuna.logging.set_verbosity(optuna.logging.INFO)
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -506,12 +508,11 @@ def main(args):
         #         checkpoint = model_args.model_name_or_path
 
         if data_args.autotune:
-            
             best_result = trainer.hyperparameter_search(
             hp_space=my_hp_space,
             direction="maximize", 
             backend="optuna", 
-            n_trials = data_args.autotune_trials, # number of trials
+            n_trials=data_args.autotune_trials, # number of trials
             # n_jobs=2  # number of parallel jobs, if multiple GPUs
             )
 
@@ -519,6 +520,7 @@ def main(args):
             trainer.args.learning_rate = best_result.hyperparameters['learning_rate']
             trainer.args.per_device_train_batch_size = best_result.hyperparameters['per_device_train_batch_size']
             json.dump(best_result.hyperparameters, open(os.path.join(training_args.output_dir, 'best_hp.json'), 'w+'))
+
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         metrics = train_result.metrics
         max_train_samples = (
