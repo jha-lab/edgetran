@@ -36,8 +36,7 @@ import logging
 
 
 PREFIX_CHECKPOINT_DIR = "checkpoint"
-# GLUE_TASKS = ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli']
-GLUE_TASKS = ['cola', 'mrpc', 'rte', 'stsb']
+GLUE_TASKS = ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli']
 
 
 def get_training_args(pretrained_dir, output_dir, task, autotune, autotune_trials):
@@ -50,7 +49,7 @@ def get_training_args(pretrained_dir, output_dir, task, autotune, autotune_trial
 		--autotune_trials {autotune_trials} \
 		--logging_steps 50 \
 		--max_seq_length 512 \
-		--per_device_train_batch_size 16 \
+		--per_device_train_batch_size 8 \
 		--gradient_accumulation_steps 2 \
 		--load_best_model_at_end \
 		--metric_for_best_model eval_loss \
@@ -124,32 +123,34 @@ def main(args):
 
 	for task in GLUE_TASKS:
 
+		if os.path.exists(os.path.join(output_dir, task, 'all_results.json')): 
+			print(f'Already finetuned on GLUE dataset: {task.upper()}')
+			continue
+
 		print(f'Finetuning on GLUE dataset: {task.upper()}')
 
 		autotune = args.autotune and not (task == 'qqp' or task == 'qnli')
-		training_args = get_training_args(output_dir, os.path.join(output_dir, task), task, autotune, args.autotune_trials)
+
+		training_args = get_training_args(output_dir if task not in ['mrpc', 'rte', 'stsb'] else os.path.join(output_dir, 'mnli'), os.path.join(output_dir, task), task, autotune, 5 if task == 'mnli' else args.autotune_trials)
+		
 		metrics = run_glue(training_args)
 		print(metrics)
 
 		if task == 'cola':
-
 			glue_scores[task] = metrics['eval_matthews_correlation']
 			task_score = glue_scores[task]
 
 		elif task == 'stsb':
-
 			glue_scores[task+'_spearman'] = metrics['eval_spearmanr']
 			glue_scores[task+'_pearson'] = metrics['eval_pearson']
 			task_score = max(metrics['eval_spearmanr'], metrics['eval_pearson']) # (metrics['eval_spearmanr']+metrics['eval_pearson'])/2.0
 
 		elif task == 'mrpc' or task == 'qqp':
-
 			glue_scores[task+'_accuracy'] = metrics['eval_accuracy']
 			glue_scores[task+'_f1'] = metrics['eval_f1']
 			task_score = max(metrics['eval_accuracy'], metrics['eval_f1']) # (metrics['eval_accuracy']+metrics['eval_f1'])/2.0
 
 		elif task in ["sst2", "mnli",  "qnli", "rte", "wnli"]:
-
 			glue_scores[task] = metrics['eval_accuracy']
 			task_score = metrics['eval_accuracy']
 				
@@ -179,7 +180,7 @@ if __name__ == '__main__':
 		metavar='',
 		type=int,
 		help='number of trials for optuna',
-		default=20)
+		default=10)
 	parser.set_defaults(autotune=False)
 
 	args = parser.parse_args()
