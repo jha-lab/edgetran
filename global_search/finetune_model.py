@@ -125,16 +125,14 @@ def main(args):
 
 		if os.path.exists(os.path.join(output_dir, task, 'all_results.json')): 
 			print(f'Already finetuned on GLUE dataset: {task.upper()}')
-			continue
-
-		print(f'Finetuning on GLUE dataset: {task.upper()}')
-
-		autotune = args.autotune and not (task == 'qqp' or task == 'qnli')
-
-		training_args = get_training_args(output_dir if task not in ['mrpc', 'rte', 'stsb'] else os.path.join(output_dir, 'mnli'), os.path.join(output_dir, task), task, autotune, 5 if task == 'mnli' else args.autotune_trials)
+			metrics = json.load(open(os.path.join(output_dir, task, 'all_results.json')))
+		else:
+			print(f'Finetuning on GLUE dataset: {task.upper()}')
+			autotune = args.autotune and not (task == 'qqp' or task == 'qnli')
+			training_args = get_training_args(output_dir if task not in ['mrpc', 'rte', 'stsb'] else os.path.join(output_dir, 'mnli'), os.path.join(output_dir, task), task, autotune, 5 if task == 'mnli' else args.autotune_trials)
 		
-		metrics = run_glue(training_args)
-		print(metrics)
+			metrics = run_glue(training_args)
+			print(metrics)
 
 		if task == 'cola':
 			glue_scores[task] = metrics['eval_matthews_correlation']
