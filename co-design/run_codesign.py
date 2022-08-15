@@ -39,11 +39,6 @@ from boshnas import BOSHNAS
 from boshnas_2inp import BOSHNAS as BOSHCODE
 from acq import gosh_acq as acq
 
-from transformers import BertModel
-from transformers import RobertaTokenizer, RobertaModel
-from transformers.models.bert.configuration_bert import BertConfig
-from transformers.models.bert.modeling_modular_bert import BertModelModular, BertForMaskedLMModular, BertForSequenceClassificationModular
-
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -64,8 +59,6 @@ from scipy.optimize import minimize, differential_evolution
 from skopt import gp_minimize, forest_minimize, gbrt_minimize, dummy_minimize
 from skopt.plots import plot_convergence
 
-import lightgbm
-
 
 PREFIX_CHECKPOINT_DIR = "checkpoint"
 
@@ -78,7 +71,7 @@ RANDOM_SAMPLES = 10000
 K = 5
 
 
-def main():
+def main(args):
 	# Load surrogate models for glue score and pre-train loss
 	gbdtr = pickle.load(open('../global_search/dataset/surrogate_models/glue.pkl', 'rb'))
 	gbdtr_loss = pickle.load(open('../global_search/dataset/surrogate_models/pretrain.pkl', 'rb'))
@@ -274,117 +267,139 @@ def main():
 	    bounds.append((bounds_device[0][i], bounds_device[1][i]))
 
 	results = {}
+	if os.path.exists(args.output_file):
+		results = json.load(open(args.output_file, 'r'))
 
 	# Run random sampling minimization
-	print('Running Random sampling minimization ...')
-	start_time = time.time()
-	res = dummy_minimize(get_y,
-	                 bounds,
-	                 x0=np.concatenate((X_txf, X_device), axis=1).tolist(),
-	                 y0=y.tolist(),
-	                 n_calls=500,
-	                 random_state=0,
-	                 verbose=True)
-	results['Random'] = {'embedding_txf': [int(x) for x in res.x[:37]], 'device': devices[int(np.argmax(np.squeeze(res.x[37:])))], 'performance': float(res.fun), 'convergence': res.func_vals.tolist(), 'time': time.time() - start_time}
-	json.dump(results, open('./results/results.json', 'w+'), indent='\t')
+	if args.method in ['random', 'all']:
+		print('Running Random sampling minimization ...')
+		start_time = time.time()
+		res = dummy_minimize(get_y,
+		                 bounds,
+		                 x0=np.concatenate((X_txf, X_device), axis=1).tolist(),
+		                 y0=y.tolist(),
+		                 n_calls=500,
+		                 random_state=0,
+		                 verbose=True)
+		results['Random'] = {'embedding_txf': [int(x) for x in res.x[:37]], 'device': devices[int(np.argmax(np.squeeze(res.x[37:])))], 'performance': float(res.fun), 'convergence': res.func_vals.tolist(), 'time': time.time() - start_time}
+		json.dump(results, open(args.output_file, 'w+'), indent='\t')
 
 	# Run forrest minimization
-	print('Running Forest minimization ...')
-	start_time = time.time()
-	res = forest_minimize(get_y,
-	                 bounds,
-	                 x0=np.concatenate((X_txf, X_device), axis=1).tolist(),
-	                 y0=y.tolist(),
-	                 n_calls=500,
-	                 random_state=0,
-	                 verbose=True)
-	results['Forest'] = {'embedding_txf': [int(x) for x in res.x[:37]], 'device': devices[int(np.argmax(np.squeeze(res.x[37:])))], 'performance': float(res.fun), 'convergence': res.func_vals.tolist(), 'time': time.time() - start_time}
-	json.dump(results, open('./results/results.json', 'w+'), indent='\t')
+	if args.method in ['forest', 'all']:
+		print('Running Forest minimization ...')
+		start_time = time.time()
+		res = forest_minimize(get_y,
+		                 bounds,
+		                 x0=np.concatenate((X_txf, X_device), axis=1).tolist(),
+		                 y0=y.tolist(),
+		                 n_calls=500,
+		                 random_state=0,
+		                 verbose=True)
+		results['Forest'] = {'embedding_txf': [int(x) for x in res.x[:37]], 'device': devices[int(np.argmax(np.squeeze(res.x[37:])))], 'performance': float(res.fun), 'convergence': res.func_vals.tolist(), 'time': time.time() - start_time}
+		json.dump(results, open(args.output_file, 'w+'), indent='\t')
 
 	# Run GBRT minimization
-	print('Running GBRT minimization ...')
-	start_time = time.time()
-	res = gbrt_minimize(get_y,
-	                 bounds,
-	                 x0=np.concatenate((X_txf, X_device), axis=1).tolist(),
-	                 y0=y.tolist(),
-	                 n_calls=500,
-	                 random_state=0,
-	                 verbose=True)
-	results['GBRT'] = {'embedding_txf': [int(x) for x in res.x[:37]], 'device': devices[int(np.argmax(np.squeeze(res.x[37:])))], 'performance': float(res.fun), 'convergence': res.func_vals.tolist(), 'time': time.time() - start_time}
-	json.dump(results, open('./results/results.json', 'w+'), indent='\t')
+	if args.method in ['gbrt', 'all']:
+		print('Running GBRT minimization ...')
+		start_time = time.time()
+		res = gbrt_minimize(get_y,
+		                 bounds,
+		                 x0=np.concatenate((X_txf, X_device), axis=1).tolist(),
+		                 y0=y.tolist(),
+		                 n_calls=500,
+		                 random_state=0,
+		                 verbose=True)
+		results['GBRT'] = {'embedding_txf': [int(x) for x in res.x[:37]], 'device': devices[int(np.argmax(np.squeeze(res.x[37:])))], 'performance': float(res.fun), 'convergence': res.func_vals.tolist(), 'time': time.time() - start_time}
+		json.dump(results, open(args.output_file, 'w+'), indent='\t')
 
 	# Run GP minimization
-	print('Running GP minimization ...')
-	start_time = time.time()
-	res = gp_minimize(get_y,
-	                 bounds,
-	                 x0=np.concatenate((X_txf, X_device), axis=1).tolist(),
-	                 y0=y.tolist(),
-	                 n_initial_points=10,
-	                 n_calls=500,
-	                 random_state=0,
-	                 n_jobs=8,
-	                 verbose=True)
-	results['GP'] = {'embedding_txf': [int(x) for x in res.x[:37]], 'device': devices[int(np.argmax(np.squeeze(res.x[37:])))], 'performance': float(res.fun), 'convergence': res.func_vals.tolist(), 'time': time.time() - start_time}
-	json.dump(results, open('./results/results.json', 'w+'), indent='\t')
+	if args.method in ['gp', 'all']:
+		print('Running GP minimization ...')
+		start_time = time.time()
+		res = gp_minimize(get_y,
+		                 bounds,
+		                 x0=np.concatenate((X_txf, X_device), axis=1).tolist(),
+		                 y0=y.tolist(),
+		                 n_initial_points=10,
+		                 n_calls=500,
+		                 random_state=0,
+		                 n_jobs=8,
+		                 verbose=True)
+		results['GP'] = {'embedding_txf': [int(x) for x in res.x[:37]], 'device': devices[int(np.argmax(np.squeeze(res.x[37:])))], 'performance': float(res.fun), 'convergence': res.func_vals.tolist(), 'time': time.time() - start_time}
+		json.dump(results, open(args.output_file, 'w+'), indent='\t')
 
 	# Run BOSHCODE minimization
-	print('Running BOSHCODE minimization ...')
-	start_time = time.time()
-	random_samples = embedding_util.get_samples(design_space, 
-	                                            num_samples=RANDOM_SAMPLES, 
-	                                            sampling_method='Random', 
-	                                            debug=False)
+	if args.method in ['boshcode', 'all']:
+		print('Running BOSHCODE minimization ...')
+		start_time = time.time()
+		random_samples = embedding_util.get_samples(design_space, 
+		                                            num_samples=RANDOM_SAMPLES, 
+		                                            sampling_method='Random', 
+		                                            debug=False)
 
-	best_performance, old_best_performance, same_performance, itn = np.amin(y), np.inf, 0, 0
-	while itn < 100:
-	    random_txf_samples = embedding_util.get_samples(design_space, 
-	                                            num_samples=RANDOM_SAMPLES, 
-	                                            sampling_method='Random', 
-	                                            debug=False)
-	    random_txf_samples = [random_txf_samples[model]['embedding'] for model in random_txf_samples.keys()]
-	    random_device_samples = get_device_samples(num_devices=len(devices), num_samples=RANDOM_SAMPLES)
-	    
-	    random_samples = [(np.array(random_txf_samples[i]), 
-	                       random_device_samples[i]) for i in range(len(random_txf_samples))]
-	    
-	    # Get queries using GOBI
-	    query_indices = surrogate_model.get_queries(x=random_samples, k=K, explore_type='ucb', use_al=True)
-	    
-	    for i in set(query_indices):
-	        X_txf_new, X_device_new = random_samples[i]
-	        y_glue_new = predict_fn(gbdtr, X_txf_new.reshape(1, -1))
-	        y_latency_new, y_energy_new, y_peak_power_new = predict_hw_performance(latency_models, energy_models, peak_power_models, max_values, X_txf_new.reshape(1, -1), X_device_new.reshape(1, -1))
-	        performance = K_GLUE * (y_glue_new / MAX_GLUE) + \
-	                  K_LATENCY * (1 - y_latency_new / MAX_LATENCY) + \
-	                  K_ENERGY * (1 - y_energy_new / MAX_ENERGY) + \
-	                  K_PEAK_POWER * (1 - y_peak_power_new / MAX_PEAK_POWER)
-	        
-	        y_new = np.array([1 - performance])
-	        y = np.concatenate((y, y_new))
-	        
-	        X_txf, X_device = np.concatenate((X_txf, X_txf_new.reshape(1, -1))), \
-	            np.concatenate((X_device, X_device_new.reshape(1, -1)))
-	    
-	    best_performance = np.amin(y)
-	    print(f'Current iteration: {itn}. \tBest performance: {best_performance}')
-	    
-	    # Update same_performance to check convergence
-	    if best_performance == old_best_performance:
-	        same_performance += 1
+		best_performance, old_best_performance, same_performance, itn = np.amin(y), np.inf, 0, 0
+		while itn < 100:
+		    random_txf_samples = embedding_util.get_samples(design_space, 
+		                                            num_samples=RANDOM_SAMPLES, 
+		                                            sampling_method='Random', 
+		                                            debug=False)
+		    random_txf_samples = [random_txf_samples[model]['embedding'] for model in random_txf_samples.keys()]
+		    random_device_samples = get_device_samples(num_devices=len(devices), num_samples=RANDOM_SAMPLES)
+		    
+		    random_samples = [(np.array(random_txf_samples[i]), 
+		                       random_device_samples[i]) for i in range(len(random_txf_samples))]
+		    
+		    # Get queries using GOBI
+		    query_indices = surrogate_model.get_queries(x=random_samples, k=K, explore_type='ucb', use_al=True)
+		    
+		    for i in set(query_indices):
+		        X_txf_new, X_device_new = random_samples[i]
+		        y_glue_new = predict_fn(gbdtr, X_txf_new.reshape(1, -1))
+		        y_latency_new, y_energy_new, y_peak_power_new = predict_hw_performance(latency_models, energy_models, peak_power_models, max_values, X_txf_new.reshape(1, -1), X_device_new.reshape(1, -1))
+		        performance = K_GLUE * (y_glue_new / MAX_GLUE) + \
+		                  K_LATENCY * (1 - y_latency_new / MAX_LATENCY) + \
+		                  K_ENERGY * (1 - y_energy_new / MAX_ENERGY) + \
+		                  K_PEAK_POWER * (1 - y_peak_power_new / MAX_PEAK_POWER)
+		        
+		        y_new = np.array([1 - performance])
+		        y = np.concatenate((y, y_new))
+		        
+		        X_txf, X_device = np.concatenate((X_txf, X_txf_new.reshape(1, -1))), \
+		            np.concatenate((X_device, X_device_new.reshape(1, -1)))
+		    
+		    best_performance = np.amin(y)
+		    print(f'Current iteration: {itn}. \tBest performance: {best_performance}')
+		    
+		    # Update same_performance to check convergence
+		    if best_performance == old_best_performance:
+		        same_performance += 1
 
-	    old_best_performance = best_performance
-	    
-	    # Train model on expanded dataset
-	    train_error = surrogate_model.train(X_txf, X_device, y)
+		    old_best_performance = best_performance
+		    
+		    # Train model on expanded dataset
+		    train_error = surrogate_model.train(X_txf, X_device, y)
 
-	    itn += 1
+		    itn += 1
 
-	results['BOSHCODE'] = {'embedding_txf': X_txf[np.argmin(np.squeeze(y)).astype(int), :].tolist(), 'device': devices[int(np.argmax(np.squeeze(X_device[np.argmin(np.squeeze(y)).astype(int), :])))], 'performance': best_performance, 'convergence': y.tolist(), 'time': time.time() - start_time}
-	json.dump(results, open('./results/results.json', 'w+'), indent='\t')
+		results['BOSHCODE'] = {'embedding_txf': X_txf[np.argmin(np.squeeze(y)).astype(int), :].tolist(), 'device': devices[int(np.argmax(np.squeeze(X_device[np.argmin(np.squeeze(y)).astype(int), :])))], 'performance': best_performance, 'convergence': y.tolist(), 'time': time.time() - start_time}
+		json.dump(results, open(args.output_file, 'w+'), indent='\t')
 	
 
-
 if __name__ == '__main__':
-	main()
+	parser = argparse.ArgumentParser(
+		description='Input parameters for co-design',
+		formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+	parser.add_argument('--method',
+		metavar='',
+		type=str,
+		default='all',
+		help='optimization method in: ["random", "forest", "gbrt", "gp", "boshcode", "all"]')
+	parser.add_argument('--output_file',
+		metavar='',
+		type=str,
+		default='./results/results.json'
+		help='output .json file')
+
+	args = parser.parse_args()
+
+	main(args)
