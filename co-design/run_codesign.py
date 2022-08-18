@@ -213,8 +213,8 @@ def main(args):
 		latency_std = float(np.std(np.array(latency_preds)))
 		energy_std = float(np.std(np.array(energy_preds)))
 		peak_power_std = float(np.std(np.array(peak_power_preds)))
-		return float(np.random.normal(latency_mean, latency_std)), float(np.random.normal(energy_mean, energy_std)), \
-			float(np.random.normal(peak_power_mean, peak_power_std))
+		return float(np.random.normal(latency_mean, latency_std/10.0)), float(np.random.normal(energy_mean, energy_std/10.0)), \
+			float(np.random.normal(peak_power_mean, peak_power_std/10.0))
 
 	# Get random samples for devices
 	def get_device_samples(num_devices, num_samples):
