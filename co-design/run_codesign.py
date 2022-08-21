@@ -1,4 +1,4 @@
-# Run co-design
+# Run co-design using baselines and BOSHCODE
 
 # Author : Shikhar Tuli
 
@@ -9,6 +9,7 @@ import sys
 sys.path.append('../txf_design-space/')
 sys.path.append('../txf_design-space/flexibert')
 sys.path.append('../protran/boshnas/boshnas/')
+sys.path.append('../protran/')
 sys.path.append('../global_search/utils')
 sys.path.append('../')
 
@@ -29,6 +30,8 @@ from copy import deepcopy
 from tqdm import tqdm, tqdm_notebook
 from matplotlib import pyplot as plt
 from six.moves import cPickle as pickle
+
+from energy_profiler.utils.embedding_util import *
 
 from embeddings.utils import graph_util, print_util as pu
 
@@ -58,6 +61,12 @@ from scipy.optimize import minimize, differential_evolution
 
 from skopt import gp_minimize, forest_minimize, gbrt_minimize, dummy_minimize
 from skopt.plots import plot_convergence
+
+from datasets import load_dataset, interleave_datasets, load_from_disk
+from transformers.models.bert.modeling_modular_bert import BertModelModular, BertForMaskedLMModular
+from transformers import BertModel
+from transformers import RobertaTokenizer, RobertaModel
+from transformers.models.bert.configuration_bert import BertConfig
 
 
 PREFIX_CHECKPOINT_DIR = "checkpoint"
@@ -271,7 +280,7 @@ def main(args):
 		results = json.load(open(args.output_file, 'r'))
 
 	# Run random sampling minimization
-	if args.method in ['random', 'all']:
+	if args.method in ['random', 'all'] and 'Random' not in results.keys():
 		print('Running Random sampling minimization ...')
 		start_time = time.time()
 		res = dummy_minimize(get_y,
@@ -285,7 +294,7 @@ def main(args):
 		json.dump(results, open(args.output_file, 'w+'), indent='\t')
 
 	# Run forrest minimization
-	if args.method in ['forest', 'all']:
+	if args.method in ['forest', 'all'] and 'Forest' not in results.keys():
 		print('Running Forest minimization ...')
 		start_time = time.time()
 		res = forest_minimize(get_y,
@@ -299,7 +308,7 @@ def main(args):
 		json.dump(results, open(args.output_file, 'w+'), indent='\t')
 
 	# Run GBRT minimization
-	if args.method in ['gbrt', 'all']:
+	if args.method in ['gbrt', 'all'] and 'GBRT' not in results.keys():
 		print('Running GBRT minimization ...')
 		start_time = time.time()
 		res = gbrt_minimize(get_y,
@@ -313,7 +322,7 @@ def main(args):
 		json.dump(results, open(args.output_file, 'w+'), indent='\t')
 
 	# Run GP minimization
-	if args.method in ['gp', 'all']:
+	if args.method in ['gp', 'all'] and 'GP' not in results.keys():
 		print('Running GP minimization ...')
 		start_time = time.time()
 		res = gp_minimize(get_y,
@@ -329,7 +338,7 @@ def main(args):
 		json.dump(results, open(args.output_file, 'w+'), indent='\t')
 
 	# Run BOSHCODE minimization
-	if args.method in ['boshcode', 'all']:
+	if args.method in ['boshcode', 'all'] and 'BOSHCODE' not in results.keys():
 		print('Running BOSHCODE minimization ...')
 		start_time = time.time()
 
@@ -379,6 +388,31 @@ def main(args):
 
 		results['BOSHCODE'] = {'embedding_txf': X_txf[np.argmin(np.squeeze(y)).astype(int), :].tolist(), 'device': devices[int(np.argmax(np.squeeze(X_device[np.argmin(np.squeeze(y)).astype(int), :])))], 'performance': best_performance, 'convergence': y.tolist(), 'time': time.time() - start_time}
 		json.dump(results, open(args.output_file, 'w+'), indent='\t')
+
+
+
+	boshcode_model_dict = embedding_to_model_dict(results['BOSHCODE']['embedding_txf'], design_space)
+	model_graph = graph_util.model_dict_to_graph(boshcode_model_dict)
+	model_hash = graph_util.hash_graph(*model_graph, model_dict=boshcode_model_dict)
+
+	if not os.path.exists(os.path.join('../models/grow_and_prune/gptran/', model_hash)):
+		model_path = os.path.join('../models/grow_and_prune/gptran/', model_hash)
+		os.makedirs(model_path)
+
+		tokenizer = RobertaTokenizer.from_pretrained('../txf_design-space/roberta_tokenizer/')
+		config_new = BertConfig(vocab_size = tokenizer.vocab_size)
+		config_new.from_model_dict_hetero(boshcode_model_dict)
+		
+		# Initialize BERT model for pre-training
+		model = BertForMaskedLMModular(config_new)
+
+		# Save untrained model
+		model.save_pretrained(model_path)
+
+		# Save model dictionary
+		json.dump(boshcode_model_dict, open(os.path.join(model_path, 'model_dict.json'), 'w+'))
+
+		print(f'BOSHCODE model with hash: {model_hash} saved at: {model_path}')
 	
 
 if __name__ == '__main__':
