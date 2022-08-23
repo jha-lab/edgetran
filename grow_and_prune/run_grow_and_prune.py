@@ -63,7 +63,7 @@ BERT_MINI_STEPS = 1000000
 
 PREFIX_CHECKPOINT_DIR = "checkpoint"
 
-USE_GPU_EE = True # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
+USE_GPU_EE = False # Use GPU-EE partition on della cluster (False, True, or 'ONLY')
 
 PERFORMANCE_PATIENCE = 5
 
@@ -373,12 +373,17 @@ def main():
 		metavar='',
 		type=str,
 		help='path to the directory where all models are trained',
-		default='../models/grow_and_prune/bert_mini')
+		default='../models/grow_and_prune/gptran')
+	parser.add_argument('--root_model_hash',
+		metavar='',
+		type=str,
+		help='hash of the root model to start with',
+		default='1658ebb737fc0692d4e01b3eccca4f9e')
 	parser.add_argument('--n_jobs',
 		metavar='',
 		type=int,
 		help='number of parallel jobs for training the transformers',
-		default=8)
+		default=4)
 	parser.add_argument('--cluster',
 		metavar='',
 		type=str,
@@ -406,12 +411,40 @@ def main():
 		best_loss = BERT_BASE_LOSS
 		best_hash = BERT_BASE_HASH
 		base_model = 'bert_base'
+		base_steps = BERT_BASE_STEPS
+
 	elif BERT_MINI_HASH in os.listdir(args.models_dir):
 		best_loss = BERT_MINI_LOSS
 		best_hash = BERT_MINI_HASH
 		base_model = 'bert_mini'
+		base_steps = BERT_MINI_STEPS
+
+	elif args.model_hash in (os.listdir(args.models_dir)):
+		model_dir = os.path.join(args.models_dir, args.model_hash)
+
+		re_checkpoint = re.compile(r"^" + PREFIX_CHECKPOINT_DIR + r"\-(\d+)$")
+	    content = os.listdir(model_dir)
+	    checkpoints = [
+	            path
+	            for path in content
+	            if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(model_dir, path))]
+
+	    assert len(checkpoints) > 0
+		checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
+
+		trainer_state = json.load(open(os.path.join(model_dir, checkpoint_dir, 
+                                                   'trainer_state.json')))
+
+        steps = [itn['step'] for itn in trainer_state['log_history']]
+        loss = [itn['loss'] for itn in trainer_state['log_history']]
+
+		best_loss = min(loss)
+		best_hash = args.model_hash
+		base_model = 'gptran'
+		base_steps = max(steps)
+
 	else:
-		raise RuntimeError(f'BERT hash: {BERT_BASE_HASH} or {BERT_MINI_HASH} not found in {args.models_dir}')
+		raise RuntimeError(f'Model hash not found in {args.models_dir}')
 
 	# Set and load transformer dataset
 	txf_dataset = TxfDataset(args.txf_dataset_file, args.models_dir, debug=True)
@@ -420,14 +453,14 @@ def main():
 			mode=None, 
 			loss=best_loss, 
 			params=None, 
-			steps=BERT_BASE_STEPS if base_model == 'bert_base' else BERT_MINI_STEPS, 
+			steps=base_steps, 
 			parent_model_hash=None)
 
 	# Show the current dataset
 	print(f'Current tree dataset:')
 	txf_dataset.show_dataset()
 
-	# If this script is run for one iteration, the best model is assumed to be BERT-Base or BERT-Mini
+	# If this script is run for one iteration, the best model is assumed to be the given model
 	if not RUN_ONE_ITN_FROM_BERT:
 		best_loss, best_hash = txf_dataset.update_dataset()
 	best_model_dict = txf_dataset.get_model_dict(best_hash)
@@ -439,7 +472,7 @@ def main():
 
 	same_performance, iteration = 0, 0
 
-	if best_hash not in [BERT_BASE_HASH, BERT_MINI_HASH]:
+	if best_hash not in [BERT_BASE_HASH, BERT_MINI_HASH, args.model_hash]:
 		latest_mode = txf_dataset.get_mode(best_hash)
 		iteration = config['modes'].index(latest_mode) + 1
 
