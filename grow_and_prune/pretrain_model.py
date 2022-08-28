@@ -35,6 +35,7 @@ def _get_training_args(seed, max_steps, learning_rate, per_gpu_batch_size, outpu
     --do_train \
     --max_seq_length 512 \
     --per_gpu_train_batch_size {} \
+    --per_gpu_eval_batch_size {} \
     --max_steps {} \
     --adam_epsilon 1e-6 \
     --adam_beta2 0.99 \
@@ -46,7 +47,7 @@ def _get_training_args(seed, max_steps, learning_rate, per_gpu_batch_size, outpu
     --gradient_accumulation_steps 2 \
     --output_dir {} \
     --local_rank {} \
-        ".format(seed, per_gpu_batch_size, max_steps, learning_rate, output_dir, local_rank)
+        ".format(seed, per_gpu_batch_size, per_gpu_batch_size, max_steps, learning_rate, output_dir, local_rank)
     return shlex.split(a)
 
 
@@ -71,7 +72,7 @@ def main(args):
 	max_steps = curr_steps + args.steps
 
 	seed = 0
-	training_args = _get_training_args(seed, max_steps, args.learning_rate, 32, args.output_dir, args.local_rank)
+	training_args = _get_training_args(seed, max_steps, args.learning_rate, 16, args.output_dir, args.local_rank)
 
 	# Get model dictionary from output directory
 	model_dict = json.load(open(os.path.join(args.output_dir, 'model_dict.json'), 'r'))
