@@ -67,7 +67,8 @@ USE_GPU_EE = False # Use GPU-EE partition on della cluster (False, True, or 'ONL
 
 PERFORMANCE_PATIENCE = 5
 
-PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD = True # If False, encoder hidden dimensions not pruned when attention heads are pruned
+GROW_ENCODER_LAYER_WITH_ATTN_HEAD = False # If False, encoder hidden dimensions not grown when attention heads are added
+PRUNE_ENCODER_LAYER_WITH_ATTN_HEAD = False # If False, encoder hidden dimensions not pruned when attention heads are pruned
 
 RUN_ONE_ITN_FROM_BERT = False # If True, runs one iteration of grow-and-prune from BERT-Base or BERT-Mini
 BACKTRACK = False # If True, runs back-tracking
@@ -105,8 +106,6 @@ def worker(models_dir: str,
 	chosen_neighbor_path = os.path.join(models_dir, chosen_neighbor_hash)
 	model_path = os.path.join(models_dir, model_hash)
 
-	chosen_neighbor_model = BertForMaskedLMModular.from_pretrained(chosen_neighbor_path)
-
 	# Finding the latest checkpoint for chosen neighbor
 	re_checkpoint = re.compile(r"^" + PREFIX_CHECKPOINT_DIR + r"\-(\d+)$")
 	content = os.listdir(chosen_neighbor_path)
@@ -116,6 +115,8 @@ def worker(models_dir: str,
 			if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(chosen_neighbor_path, path))
 		]
 	checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
+
+	chosen_neighbor_model = BertForMaskedLMModular.from_pretrained(os.path.join(chosen_neighbor_path, checkpoint_dir))
 
 	tokenizer = RobertaTokenizer.from_pretrained('../txf_design-space/roberta_tokenizer/')
 	config_new = BertConfig(vocab_size = tokenizer.vocab_size)
@@ -158,13 +159,13 @@ def worker(models_dir: str,
 	args.extend(['--learning_rate', str(learning_rate)])
 	
 	slurm_stdout = subprocess.check_output(
-		f'ssh della-gpu "cd /scratch/gpfs/stuli/edge_txf/grow_and_prune; source ./job_scripts/job_worker.sh {" ".join(args)}"',
+		f'cd /scratch/gpfs/{id}/edge_txf/grow_and_prune; source ./job_scripts/job_worker.sh {" ".join(args)}',
 		shell=True, text=True, executable="/bin/bash")
 
 	return slurm_stdout.split()[-1]
 		
 
-def get_job_info(job_id: int):
+def get_job_info(job_id: int, cluster: str):
 	"""Obtain job info
 	
 	Args:
@@ -173,7 +174,13 @@ def get_job_info(job_id: int):
 	Returns:
 		start_time, elapsed_time, status (str, str, str): job details
 	"""
-	slurm_stdout = subprocess.check_output(f'ssh della-gpu "slist {job_id}"', shell=True, text=True, executable="/bin/bash")
+
+	if cluster == 'della':
+		cluster = 'della-gpu'
+	elif cluster == 'tiger':
+		cluster = 'tigergpu'
+
+	slurm_stdout = subprocess.check_output(f'ssh {cluster} "slist {job_id}"', shell=True, text=True, executable="/bin/bash")
 	slurm_stdout = slurm_stdout.split('\n')[2].split()
 
 	if len(slurm_stdout) > 7:
@@ -185,7 +192,7 @@ def get_job_info(job_id: int):
 	return start_time, elapsed_time, status
 
 
-def print_jobs(model_jobs: list):
+def print_jobs(model_jobs: list, cluster: str):
 	"""Print summary of all completed, pending and running jobs
 	
 	Args:
@@ -195,14 +202,14 @@ def print_jobs(model_jobs: list):
 
 	rows = []
 	for job in model_jobs:
-		start_time, elapsed_time, status = get_job_info(job['job_id'])
+		start_time, elapsed_time, status = get_job_info(job['job_id'], cluster)
 		rows.append([job['model_hash'], job['job_id'], start_time, elapsed_time, status])
 
 	print()
 	print(tabulate.tabulate(rows, header))
 
 
-def wait_for_jobs(model_jobs: list, txf_dataset: dict, running_limit: int = 4, patience: int = 1):
+def wait_for_jobs(model_jobs: list, txf_dataset: dict, cluster: str, running_limit: int = 4, patience: int = 1):
 	"""Wait for current jobs in queue to complete
 	
 	Args:
@@ -211,7 +218,7 @@ def wait_for_jobs(model_jobs: list, txf_dataset: dict, running_limit: int = 4, p
 		running_limit (int, optional): number of running jobs to limit
 		patience (int, optional): number of pending jobs to wait for
 	"""
-	print_jobs(model_jobs)
+	print_jobs(model_jobs, cluster)
 
 	completed_jobs = 0
 	last_completed_jobs = 0
@@ -220,7 +227,7 @@ def wait_for_jobs(model_jobs: list, txf_dataset: dict, running_limit: int = 4, p
 	while running_jobs > running_limit or pending_jobs > patience:
 		completed_jobs, running_jobs, pending_jobs = 0, 0, 0
 		for job in model_jobs:
-			_, _, status = get_job_info(job['job_id'])
+			_, _, status = get_job_info(job['job_id'], cluster)
 			if status == 'COMPLETED': 
 				completed_jobs += 1
 			elif status == 'PENDING' or status == 'UNKNOWN':
@@ -228,11 +235,11 @@ def wait_for_jobs(model_jobs: list, txf_dataset: dict, running_limit: int = 4, p
 			elif status == 'RUNNING':
 				running_jobs += 1
 			elif status == 'FAILED':
-				print_jobs(model_jobs)
+				print_jobs(model_jobs, cluster)
 				print(f'{pu.bcolors.FAIL}Some jobs failed{pu.bcolors.ENDC}')
 				# raise RuntimeError('Some jobs failed.')
 		if last_completed_jobs != completed_jobs:
-			print_jobs(model_jobs)
+			print_jobs(model_jobs, cluster)
 		last_completed_jobs = completed_jobs 
 		time.sleep(10)
 
@@ -363,18 +370,18 @@ def main():
 		metavar='',
 		type=str,
 		help='path to the grow-and-prune configuration file',
-		default='./configs/config_grow_only.yaml')
+		default='./configs/config.yaml')
 	parser.add_argument('--txf_dataset_file',
 		metavar='',
 		type=str,
 		help='path to the transformer dataset file',
-		default='./dataset/dataset_mini.json')
+		default='./dataset/dataset_gptran.json')
 	parser.add_argument('--models_dir',
 		metavar='',
 		type=str,
 		help='path to the directory where all models are trained',
 		default='../models/grow_and_prune/gptran')
-	parser.add_argument('--root_model_hash',
+	parser.add_argument('--model_hash',
 		metavar='',
 		type=str,
 		help='hash of the root model to start with',
@@ -388,7 +395,7 @@ def main():
 		metavar='',
 		type=str,
 		help='name of the cluster - "adroit", "tiger" or "della"',
-		default='della')
+		default='tiger')
 	parser.add_argument('--id',
 		metavar='',
 		type=str,
@@ -423,20 +430,20 @@ def main():
 		model_dir = os.path.join(args.models_dir, args.model_hash)
 
 		re_checkpoint = re.compile(r"^" + PREFIX_CHECKPOINT_DIR + r"\-(\d+)$")
-	    content = os.listdir(model_dir)
-	    checkpoints = [
-	            path
-	            for path in content
-	            if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(model_dir, path))]
+		content = os.listdir(model_dir)
+		checkpoints = [
+				path
+				for path in content
+				if re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(model_dir, path))]
 
-	    assert len(checkpoints) > 0
+		assert len(checkpoints) > 0
 		checkpoint_dir = max(checkpoints, key=lambda x: int(re_checkpoint.search(x).groups()[0]))
 
 		trainer_state = json.load(open(os.path.join(model_dir, checkpoint_dir, 
-                                                   'trainer_state.json')))
+												   'trainer_state.json')))
 
-        steps = [itn['step'] for itn in trainer_state['log_history']]
-        loss = [itn['loss'] for itn in trainer_state['log_history']]
+		steps = [itn['step'] for itn in trainer_state['log_history']]
+		loss = [itn['loss'] for itn in trainer_state['log_history']]
 
 		best_loss = min(loss)
 		best_hash = args.model_hash
@@ -569,7 +576,12 @@ def main():
 		# Grow model based on configuration
 		elif mode.startswith('grow'):
 			layers_done = []
-			for i in range(config['grow']['num_samples']):
+			if mode == 'grow_attn_head':
+				num_samples = min(config['grow']['num_samples'], best_model_dict['l'] * len(config['allowed_ops']))
+			elif mode == 'grow_ffnn':
+				num_samples = min(config['grow']['num_samples'], best_model_dict['l'] * len(config['grow']['feed_forward_grow_dim']))
+
+			for i in range(num_samples):
 				model_dict = deepcopy(best_model_dict)
 
 				if mode == 'grow_attn_head':
@@ -584,6 +596,9 @@ def main():
 						
 						layer_hidden_dim = model_dict['o'][layer][0].split('_')[2]
 						model_dict['o'][layer].append(op + '_' +  layer_hidden_dim)
+						
+						if GROW_ENCODER_LAYER_WITH_ATTN_HEAD:
+							model_dict['h'][layer] += layer_hidden_dim
 				
 				elif mode == 'grow_ffnn':
 					# Add a feed-forward stack
@@ -621,7 +636,7 @@ def main():
 				model_jobs.append({'model_hash': model_hash, 'job_id': job_id})
 
 		# Wait for jobs to complete
-		wait_for_jobs(model_jobs, txf_dataset, running_limit=0, patience=0)
+		wait_for_jobs(model_jobs, txf_dataset, args.cluster, running_limit=0, patience=0)
 
 		# Update best loss and hash
 		best_loss, best_hash = txf_dataset.update_dataset()
