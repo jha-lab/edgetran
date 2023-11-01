@@ -33,7 +33,7 @@ Cite our work using the following bitex entry:
 ## License
 
 BSD-3-Clause. 
-Copyright (c) 2022, Shikhar Tuli and Jha Lab.
+Copyright (c) 2023, Shikhar Tuli and Jha Lab.
 All rights reserved.
 
 See License file for more details.
